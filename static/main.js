@@ -4,6 +4,13 @@ const clearBtn = document.getElementById('clearBtn');
 const downloadBtn = document.getElementById('downloadBtn');
 const resultArea = document.getElementById('resultArea');
 
+// Helper: XSS থেকে বাঁচার জন্য text safe করা
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.appendChild(document.createTextNode(text));
+    return div.innerHTML;
+}
+
 // 1. URL Validation
 urlInput.addEventListener('input', () => {
     clearBtn.classList.toggle('hidden', !urlInput.value);
@@ -19,7 +26,7 @@ async function pasteLink() {
         clearBtn.classList.remove('hidden');
         urlInput.dispatchEvent(new Event('input'));
     } catch (err) {
-        console.error('Failed to paste: ', err);
+        alert('Clipboard access denied. Please paste manually.');
     }
 }
 
@@ -33,7 +40,14 @@ function clearInput() {
 
 // 4. Download Process
 async function processDownload() {
-    if (!urlInput.value) return;
+    const url = urlInput.value.trim();
+    if (!url) return;
+
+    // সহজ ক্লায়েন্ট-সাইড চেক
+    if (!url.includes('tiktok.com')) {
+        resultArea.innerHTML = `<div class="bg-red-500/10 border border-red-500/20 p-4 rounded-xl text-center text-red-400 mt-6">Please enter a valid TikTok URL.</div>`;
+        return;
+    }
 
     // UI State: Loading
     downloadBtn.disabled = true;
@@ -44,56 +58,68 @@ async function processDownload() {
         const response = await fetch('/download', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ url: urlInput.value })
+            body: JSON.stringify({ url: url })
         });
 
         const data = await response.json();
 
         if (data.success) {
             let html = '';
-            
-            // যদি ফটো মোড হয়
+
+            // FIX: escapeHtml দিয়ে XSS রোধ করা হয়েছে
             if (data.is_photo) {
+                const safeTitle = escapeHtml(data.title || 'TikTok Photos');
+                const safeAuthor = escapeHtml(data.author || 'Unknown');
                 html = `
                     <div class="glass p-6 mt-6 animate-fade-in">
-                        <h3 class="font-bold text-lg mb-2">${data.title}</h3>
-                        <p class="text-cyan-400 text-sm mb-6">Author: @${data.author}</p>
+                        <h3 class="font-bold text-lg mb-2">${safeTitle}</h3>
+                        <p class="text-cyan-400 text-sm mb-6">Author: @${safeAuthor}</p>
                         <div class="grid grid-cols-2 gap-4">
                             ${data.images.map((img, index) => `
-                                <a href="${img}" download="tiktok_photo_${index + 1}.jpg" target="_blank" class="bg-slate-700 py-3 px-2 rounded-xl text-center font-bold hover:bg-cyan-600 transition truncate">
-                                    Photo ${index + 1}
+                                <a href="${escapeHtml(img)}" download="tiktok_photo_${index + 1}.jpg" target="_blank" rel="noopener noreferrer" class="bg-slate-700 py-3 px-2 rounded-xl text-center font-bold hover:bg-cyan-600 transition truncate">
+                                    📥 Photo ${index + 1}
                                 </a>
                             `).join('')}
                         </div>
                     </div>
                 `;
-            } 
-            // যদি ভিডিও হয়
-            else {
+            } else {
+                const safeTitle = escapeHtml((data.title || 'Untitled Video').substring(0, 60));
+                const safeAuthor = escapeHtml(data.author || 'Unknown');
+                const safeThumbnail = escapeHtml(data.thumbnail || '');
+                const safeHdUrl = escapeHtml(data.hd_url || '');
+                const safeSdUrl = escapeHtml(data.sd_url || '');
+
                 html = `
                     <div class="glass p-6 mt-6 animate-fade-in">
                         <div class="flex gap-4 items-center">
-                            <img src="${data.thumbnail}" class="w-24 h-24 rounded-xl object-cover border border-slate-700">
+                            ${safeThumbnail ? `<img src="${safeThumbnail}" class="w-24 h-24 rounded-xl object-cover border border-slate-700" alt="Thumbnail" onerror="this.style.display='none'">` : ''}
                             <div>
-                                <h3 class="font-bold text-lg">${data.title.substring(0, 50)}...</h3>
-                                <p class="text-cyan-400 text-sm">@${data.author}</p>
+                                <h3 class="font-bold text-lg">${safeTitle}</h3>
+                                <p class="text-cyan-400 text-sm">@${safeAuthor}</p>
                             </div>
                         </div>
+                        <!-- FIX: download attribute যোগ করা হয়েছে — নতুন ট্যাব না খুলে এখন সরাসরি ডাউনলোড হবে -->
                         <div class="grid grid-cols-2 gap-4 mt-6">
-                            <a href="${data.hd_url}" target="_blank" class="btn-gradient py-3 rounded-xl text-center font-bold">HD Download</a>
-                            <a href="${data.sd_url}" target="_blank" class="bg-slate-700 py-3 rounded-xl text-center font-bold hover:bg-slate-600 transition">SD Download</a>
+                            <a href="${safeHdUrl}" download="tiktok_hd.mp4" target="_blank" rel="noopener noreferrer" class="btn-gradient py-3 rounded-xl text-center font-bold">📥 HD Download</a>
+                            <a href="${safeSdUrl}" download="tiktok_sd.mp4" target="_blank" rel="noopener noreferrer" class="bg-slate-700 py-3 rounded-xl text-center font-bold hover:bg-slate-600 transition">📥 SD Download</a>
                         </div>
                     </div>
                 `;
             }
             resultArea.innerHTML = html;
         } else {
-            resultArea.innerHTML = `<div class="bg-red-500/10 border border-red-500/20 p-4 rounded-xl text-center text-red-400 mt-6">${data.error}</div>`;
+            resultArea.innerHTML = `<div class="bg-red-500/10 border border-red-500/20 p-4 rounded-xl text-center text-red-400 mt-6">${escapeHtml(data.error || 'Something went wrong.')}</div>`;
         }
     } catch (error) {
-        resultArea.innerHTML = `<div class="text-red-500 text-center mt-6">Something went wrong.</div>`;
+        resultArea.innerHTML = `<div class="bg-red-500/10 border border-red-500/20 p-4 rounded-xl text-center text-red-400 mt-6">Network error. Please check your connection and try again.</div>`;
     } finally {
         downloadBtn.disabled = false;
         downloadBtn.innerText = 'Download Video';
     }
 }
+
+// Enter key দিয়েও ডাউনলোড করা যাবে
+urlInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') processDownload();
+});

@@ -13,9 +13,13 @@ def home():
 
 @app.route('/download', methods=['POST'])
 def download():
-    """ভিডিও ডাউনলোডের মেইন API এন্ডপয়েন্ট"""
-    data = request.json
-    video_url = data.get('url')
+    """ভিডিও ডাউনলোডের মেইন API এন্ডপয়েন্ট"""
+    # FIX: request.json None হলে crash থেকে রক্ষা
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'success': False, 'error': 'Invalid request. JSON body required.'}), 400
+
+    video_url = data.get('url', '').strip()
 
     # ১. URL ভ্যালিডেশন
     if not is_valid_tiktok_url(video_url):
@@ -35,7 +39,6 @@ def download():
         return jsonify(result), 400
 
 if __name__ == '__main__':
-    # রেন্ডার বা লোকাল এনভায়রনমেন্টের জন্য পোর্ট সেটিংস
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
-
+    debug = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
+    app.run(host='0.0.0.0', port=port, debug=debug)

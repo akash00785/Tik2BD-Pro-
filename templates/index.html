@@ -7,7 +7,9 @@
     
     <meta name="description" content="Download TikTok videos without watermark in HD quality. Fast, free, and secure TikTok downloader. Powered by SkyNet Digital AI.">
     <meta name="keywords" content="TikTok Downloader, Download TikTok No Watermark, HD TikTok Video, Tik2BD, TikTok Video Saver">
-    <link rel="canonical" href="https://yourdomain.com/">
+
+    <!-- FIX: আপনার আসল ডোমেইন দিয়ে এটা আপডেট করুন -->
+    <link rel="canonical" href="https://tik2bd.onrender.com/">
     
     <meta property="og:title" content="Tik2BD - TikTok Video Downloader">
     <meta property="og:description" content="Download your favorite TikTok videos in HD without watermark.">
@@ -38,14 +40,14 @@
 
         <div class="glass rounded-3xl p-6 shadow-2xl">
             <div class="relative flex items-center bg-slate-900 rounded-2xl p-2 border border-slate-700 focus-within:border-cyan-500 transition">
-                <input id="urlInput" class="flex-1 bg-transparent p-3 outline-none text-white placeholder:text-slate-600" placeholder="Paste your TikTok link here...">
-                <button onclick="pasteLink()" class="px-4 text-slate-400 hover:text-cyan-400 font-medium">Paste</button>
-                <button id="clearBtn" onclick="clearInput()" class="hidden px-4 text-red-400 font-medium">Clear</button>
+                <input id="urlInput" class="flex-1 bg-transparent p-3 outline-none text-white placeholder:text-slate-600" placeholder="Paste your TikTok link here..." aria-label="TikTok URL">
+                <button onclick="pasteLink()" class="px-4 text-slate-400 hover:text-cyan-400 font-medium" aria-label="Paste from clipboard">Paste</button>
+                <button id="clearBtn" onclick="clearInput()" class="hidden px-4 text-red-400 font-medium" aria-label="Clear input">Clear</button>
             </div>
             <button id="downloadBtn" onclick="processDownload()" class="w-full mt-4 btn-gradient py-4 rounded-2xl font-bold text-lg hover:scale-[1.01] transition shadow-lg">Download Video</button>
         </div>
 
-        <div id="resultArea" class="mt-8"></div>
+        <div id="resultArea" class="mt-8" aria-live="polite"></div>
 
         <section class="mt-20 grid grid-cols-1 md:grid-cols-3 gap-6">
             <div class="glass p-6 text-center"><h3 class="font-bold text-cyan-400 mb-2">No Watermark</h3><p class="text-slate-400 text-sm">Clean videos without any logo.</p></div>
@@ -64,17 +66,17 @@
                 <p><strong>Q3: Does it work on mobile?</strong> Yes, works on Android and iOS.</p>
                 <p><strong>Q4: Is it safe?</strong> Yes, we don't store your personal data.</p>
                 <p><strong>Q5: Can I download HD?</strong> Yes, we provide full HD quality.</p>
-                <p><strong>Q6: How to download?</strong> Paste link -> Click Download -> Enjoy!</p>
+                <p><strong>Q6: How to download?</strong> Paste link &rarr; Click Download &rarr; Enjoy!</p>
             </div>
         </section>
     </main>
 
     <footer class="border-t border-slate-800 mt-20 py-10 text-center text-slate-500 text-sm">
         <div class="flex justify-center gap-6 mb-4">
-            <a href="#" class="hover:text-cyan-400">About</a>
-            <a href="#" class="hover:text-cyan-400">Contact</a>
-            <a href="#" class="hover:text-cyan-400">Privacy Policy</a>
-            <a href="#" class="hover:text-cyan-400">Terms</a>
+            <a href="/about" class="hover:text-cyan-400">About</a>
+            <a href="/contact" class="hover:text-cyan-400">Contact</a>
+            <a href="/privacy" class="hover:text-cyan-400">Privacy Policy</a>
+            <a href="/terms" class="hover:text-cyan-400">Terms</a>
         </div>
         <p>Powered by <strong>SkyNet Digital AI</strong> | Developed by <strong>Akash Islam</strong></p>
         <p class="mt-2">&copy; 2026 Tik2BD. All Rights Reserved.</p>
@@ -83,4 +85,3 @@
     <script src="{{ url_for('static', filename='main.js') }}"></script>
 </body>
 </html>
-
