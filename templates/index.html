@@ -1,172 +1,91 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+    <title>Tik2BD | TikTok Video Downloader - No Watermark HD</title>
+    
+    <meta name="description" content="Download TikTok videos and photos without watermark in HD quality. Fast, free, and secure. Powered by SkyNet Digital AI.">
+    <meta name="keywords" content="TikTok Downloader, Download TikTok No Watermark, HD TikTok Video, Tik2BD, TikTok Video Saver">
+    <meta name="robots" content="index, follow">
+    <meta name="theme-color" content="#0f172a">
+    
+    <meta property="og:title" content="Tik2BD - TikTok Video Downloader">
+    <meta property="og:description" content="Download your favorite TikTok content in HD without watermark.">
+    <meta property="og:type" content="website">
+    <meta name="twitter:card" content="summary_large_image">
 
-<meta charset="UTF-8">
-
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-
-<title>Tik2BD | Download TikTok Videos Without Watermark in HD</title>
-
-<meta name="description" content="Download TikTok videos without watermark in HD quality for free. Fast, secure, unlimited TikTok downloader.">
-
-<meta name="keywords" content="TikTok Downloader, TikTok HD Downloader, Download TikTok Without Watermark, Tik2BD, SnapTik Alternative">
-
-<meta name="author" content="Akash Islam">
-
-<meta name="robots" content="index, follow">
-
-<meta name="theme-color" content="#0f172a">
-
-<link rel="canonical" href="https://yourdomain.com/">
-
-<link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
-
-<meta property="og:title" content="Tik2BD - Download TikTok Videos Without Watermark">
-
-<meta property="og:description" content="Download TikTok videos in HD quality without watermark.">
-
-<meta property="og:type" content="website">
-
-<meta property="og:image" content="{{ url_for('static', filename='og-image.png') }}">
-
-<meta name="twitter:card" content="summary_large_image">
-
-<meta name="twitter:title" content="Tik2BD">
-
-<meta name="twitter:description" content="Professional TikTok Downloader">
-
-<script src="https://cdn.tailwindcss.com"></script>
-
-<link rel="preconnect" href="https://fonts.googleapis.com">
-
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
-<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-
-<script type="application/ld+json">
-{
- "@context":"https://schema.org",
- "@type":"WebApplication",
- "name":"Tik2BD",
- "applicationCategory":"MultimediaApplication",
- "operatingSystem":"Any",
- "description":"Professional TikTok Downloader"
-}
-</script>
-
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="icon" href="/favicon.ico">
 </head>
+<body class="antialiased">
+    <div class="glow-bg"></div>
 
-<body class="bg-slate-950 text-white min-h-screen overflow-x-hidden">
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="text-center">
+            <div class="spinner mx-auto mb-4"></div>
+            <p class="text-lg font-bold">Processing your video...</p>
+        </div>
+    </div>
 
-<div class="fixed inset-0 -z-10">
+    <main class="max-w-4xl mx-auto px-5 py-12">
+        <header class="text-center mb-16 animate-fade-in">
+            <div class="inline-block px-4 py-1 rounded-full bg-cyan-500/10 text-cyan-400 text-sm font-semibold mb-4 border border-cyan-500/20">
+                ✨ No Watermark • HD • 100% Free
+            </div>
+            <h1 class="text-5xl md:text-7xl font-extrabold mb-6 tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">
+                Tik2BD
+            </h1>
+            <p class="text-slate-400 text-lg max-w-lg mx-auto">Download TikTok Videos and Photos instantly with SkyNet Digital AI technology.</p>
+        </header>
 
-<div class="absolute top-0 left-1/2 -translate-x-1/2 w-[700px] h-[700px] bg-cyan-500/20 blur-[180px] rounded-full"></div>
+        <div class="glass rounded-3xl p-6 shadow-2xl mb-12 animate-fade-in">
+            <div class="relative flex items-center bg-slate-900 rounded-2xl p-2 input-field" id="inputWrapper">
+                <input id="urlInput" class="flex-1 bg-transparent p-3 outline-none text-white placeholder:text-slate-600" placeholder="Paste TikTok URL here...">
+                <button onclick="pasteLink()" class="px-4 text-slate-400 hover:text-cyan-400 font-medium">Paste</button>
+                <button id="clearBtn" onclick="clearInput()" class="hidden px-4 text-red-400 font-medium">Clear</button>
+            </div>
+            <button id="downloadBtn" onclick="processDownload()" class="w-full mt-4 btn-gradient py-4 rounded-2xl font-bold text-lg hover:scale-[1.01] transition shadow-lg flex items-center justify-center gap-2">
+                Download Now
+            </button>
+        </div>
 
-<div class="absolute bottom-0 right-0 w-[500px] h-[500px] bg-blue-600/20 blur-[150px] rounded-full"></div>
+        <div id="resultArea"></div>
 
-</div>
+        <section class="mt-20 grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="glass p-6"><h3 class="font-bold text-cyan-400 mb-2">No Watermark</h3><p class="text-slate-400 text-sm">Clean, original quality content.</p></div>
+            <div class="glass p-6"><h3 class="font-bold text-cyan-400 mb-2">HD Quality</h3><p class="text-slate-400 text-sm">Full resolution video and photo support.</p></div>
+            <div class="glass p-6"><h3 class="font-bold text-cyan-400 mb-2">Fast Download</h3><p class="text-slate-400 text-sm">Lightning fast server response.</p></div>
+            <div class="glass p-6"><h3 class="font-bold text-cyan-400 mb-2">Unlimited</h3><p class="text-slate-400 text-sm">No limits on downloads per day.</p></div>
+            <div class="glass p-6"><h3 class="font-bold text-cyan-400 mb-2">Secure</h3><p class="text-slate-400 text-sm">Encrypted and safe to use.</p></div>
+            <div class="glass p-6"><h3 class="font-bold text-cyan-400 mb-2">100% Free</h3><p class="text-slate-400 text-sm">Always free for everyone.</p></div>
+        </section>
 
-<div id="loadingOverlay" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center">
+        <section class="mt-20 glass p-8">
+            <h2 class="text-2xl font-bold mb-6">Frequently Asked Questions</h2>
+            <div class="space-y-4" id="faqAccordion">
+                <div class="border-b border-slate-700 pb-4">
+                    <button class="w-full text-left font-bold py-2 flex justify-between" onclick="this.parentElement.classList.toggle('accordion-active')">
+                        Is it safe to use Tik2BD? <span>+</span>
+                    </button>
+                    <div class="accordion-content pt-2 text-slate-400">Yes, it is 100% safe. We do not store your data.</div>
+                </div>
+                </div>
+        </section>
+    </main>
 
-<div class="glass rounded-3xl p-8 text-center">
+    <footer class="border-t border-slate-800 mt-20 py-10 text-center text-slate-500 text-sm">
+        <div class="flex flex-wrap justify-center gap-6 mb-6">
+            <a href="#" class="hover:text-cyan-400">About</a>
+            <a href="#" class="hover:text-cyan-400">Privacy Policy</a>
+            <a href="#" class="hover:text-cyan-400">Terms of Service</a>
+            <a href="#" class="hover:text-cyan-400">DMCA</a>
+        </div>
+        <p>Powered by <strong>SkyNet Digital AI</strong> | Developed by <strong>Akash Islam</strong></p>
+        <p class="mt-2">&copy; 2026 Tik2BD. All Rights Reserved.</p>
+    </footer>
 
-<div class="loader mx-auto mb-4"></div>
-
-<h2 class="text-xl font-bold">Processing...</h2>
-
-<p class="text-slate-400 mt-2">
-Please wait while we prepare your download.
-</p>
-
-</div>
-
-</div>
-
-<div id="toast" class="hidden fixed top-5 left-1/2 -translate-x-1/2 z-50 glass px-6 py-3 rounded-full font-semibold"></div>
-
-<main class="max-w-6xl mx-auto px-5 py-12">
-
-<header class="text-center">
-
-<div class="inline-flex items-center gap-2 glass rounded-full px-5 py-2 text-cyan-300 text-sm">
-
-🔥 No Watermark • HD Quality • Unlimited
-
-</div>
-
-<h1 class="mt-8 text-5xl md:text-7xl font-extrabold leading-tight">
-
-<span class="bg-gradient-to-r from-cyan-400 via-blue-400 to-violet-500 bg-clip-text text-transparent">
-
-Download TikTok Videos
-
-</span>
-
-<br>
-
-<span class="text-white">
-
-Without Watermark
-
-</span>
-
-</h1>
-
-<p class="mt-6 text-slate-400 text-lg max-w-2xl mx-auto">
-
-Fast, secure and completely free TikTok downloader with HD quality support.
-
-</p>
-
-<div class="mt-10 grid grid-cols-3 gap-5 max-w-xl mx-auto">
-
-<div class="glass rounded-2xl p-4">
-
-<h3 class="text-2xl font-bold text-cyan-400">
-HD
-</h3>
-
-<p class="text-slate-400 text-sm">
-High Quality
-</p>
-
-</div>
-
-<div class="glass rounded-2xl p-4">
-
-<h3 class="text-2xl font-bold text-green-400">
-
-Unlimited
-
-</h3>
-
-<p class="text-slate-400 text-sm">
-
-Downloads
-
-</p>
-
-</div>
-
-<div class="glass rounded-2xl p-4">
-
-<h3 class="text-2xl font-bold text-violet-400">
-
-100%
-
-</h3>
-
-<p class="text-slate-400 text-sm">
-
-Free
-
-</p>
-
-</div>
-
-</div>
-
-</header>
+    <script src="{{ url_for('static', filename='main.js') }}"></script>
+</body>
+</html>
