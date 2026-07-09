@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, jsonify, Response, stream_wit
 import os
 import requests as req_lib
 from services.api_handler import fetch_tiktok_data
+from services.ytdlp_handler import stream_ytdlp_video
 from utils.validators import is_valid_tiktok_url
 from services.logger import logger
 
@@ -93,6 +94,67 @@ def proxy_download():
     except req_lib.RequestException as e:
         logger.error(f"Proxy error: {str(e)}")
         return jsonify({'error': 'Could not fetch video. Please try again.'}), 502
+
+
+@app.route('/proxy-download-normal')
+def proxy_download_normal():
+    """
+    Normal (SD) ডাউনলোড — yt-dlp দিয়ে সরাসরি TikTok পোস্ট URL থেকে স্ট্রিম
+    করা হয়, RapidAPI key-এর উপর নির্ভর না করে। HD-এর মতো এখানে CDN URL
+    ব্যবহার করা হয় না, কারণ yt-dlp-এর তোলা CDN URL-এ raw requests দিয়ে
+    হিট করলে TikTok 403 Forbidden দেয় — extraction session-এর cookie
+    (msToken/ttwid) ছাড়া CDN রাজি হয় না। তাই একই yt-dlp session
+    (cookiejar) দিয়েই ডাউনলোড করা হয়।
+    """
+    video_url = request.args.get('url', '').strip()
+    filename = request.args.get('filename', 'tiktok_normal.mp4')
+
+    if not video_url or not is_valid_tiktok_url(video_url):
+        return jsonify({'error': 'Invalid request'}), 400
+
+    try:
+        result = stream_ytdlp_video(video_url)
+    except Exception as e:
+        logger.error(f"yt-dlp proxy error: {str(e)}")
+        return jsonify({'error': 'Could not fetch video. Please try again.'}), 502
+
+    if not result:
+        return jsonify({'error': 'Could not fetch video. Please try again.'}), 502
+
+    ydl, cdn_resp = result
+
+    resp_info = getattr(cdn_resp, 'headers', {}) or {}
+    content_type = resp_info.get('Content-Type') or 'video/mp4'
+    content_length = resp_info.get('Content-Length')
+
+    response_headers = {
+        'Content-Disposition': f'attachment; filename="{filename}"',
+        'Content-Type': content_type,
+    }
+    if content_length:
+        response_headers['Content-Length'] = content_length
+
+    def generate():
+        try:
+            while True:
+                chunk = cdn_resp.read(65536)
+                if not chunk:
+                    break
+                yield chunk
+        except Exception as e:
+            logger.error(f"yt-dlp proxy stream interrupted: {str(e)}")
+        finally:
+            try:
+                cdn_resp.close()
+            except Exception:
+                pass
+            ydl.close()
+
+    return Response(
+        stream_with_context(generate()),
+        headers=response_headers,
+        status=200
+    )
 
 
 if __name__ == '__main__':
