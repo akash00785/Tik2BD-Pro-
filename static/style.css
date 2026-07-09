@@ -490,6 +490,25 @@ body {
     .photo-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
+.hd-lock-box {
+    margin-top: 1rem;
+    padding: 1rem 1.25rem;
+    border-radius: var(--radius);
+    background: rgba(124, 58, 237, 0.08);
+    border: 1px solid var(--border);
+}
+
+.hd-lock-msg {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin-bottom: 0.75rem;
+}
+
+.hd-lock-sub {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
 .result-btn.sd:hover {
     background: rgba(255,255,255,0.1);
     color: var(--text-primary);

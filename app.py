@@ -1,13 +1,56 @@
-from flask import Flask, render_template, request, jsonify, Response, stream_with_context
+from flask import Flask, render_template, request, jsonify, Response, stream_with_context, g
 import os
+import secrets
 from urllib.parse import urlparse
 import requests as req_lib
 from services.api_handler import fetch_tiktok_data
 from services.ytdlp_handler import stream_ytdlp_video
+from services import hd_limiter
 from utils.validators import is_valid_tiktok_url
 from services.logger import logger
+import ads_config
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
+
+DEVICE_COOKIE_NAME = 'tik2bd_device'
+DEVICE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365  # ১ বছর
+
+
+def _client_ip():
+    # Render/অন্য কোনো রিভার্স প্রক্সির পেছনে থাকলে X-Forwarded-For থাকতে পারে
+    forwarded = request.headers.get('X-Forwarded-For', '')
+    if forwarded:
+        return forwarded.split(',')[0].strip()
+    return request.remote_addr or 'unknown'
+
+
+def _get_or_create_device_id():
+    """
+    কুকি থেকে device id পড়ে; না থাকলে নতুন একটা বানিয়ে request-এর
+    জন্য `flask.g`-তে রেখে দেয়, যাতে একই রিকোয়েস্টে limiter সঠিক
+    id-টাই পায়, এবং রেসপন্সে সেই id-টাই কুকি হিসেবে সেভ হয়।
+    """
+    existing = request.cookies.get(DEVICE_COOKIE_NAME)
+    if existing:
+        return existing
+    if not hasattr(g, '_new_device_id'):
+        g._new_device_id = secrets.token_urlsafe(24)
+    return g._new_device_id
+
+
+@app.after_request
+def add_device_cookie(response):
+    """প্রতিটা ভিজিটরের জন্য একটা দীর্ঘস্থায়ী, র‍্যান্ডম device কুকি বসানো হয় —
+    এটাই HD লিমিট গণনার সময় IP-এর সাথে মিলিয়ে ব্যবহার করা হয়।"""
+    if not request.cookies.get(DEVICE_COOKIE_NAME) and hasattr(g, '_new_device_id'):
+        response.set_cookie(
+            DEVICE_COOKIE_NAME,
+            g._new_device_id,
+            max_age=DEVICE_COOKIE_MAX_AGE,
+            httponly=True,
+            samesite='Lax',
+        )
+    return response
 
 # TikTok-এর নিজস্ব CDN হোস্টগুলো (RapidAPI যে hd/sd লিংক ফেরত দেয়, সেগুলো
 # এই ডোমেইনগুলোর কোনো একটার সাব-ডোমেইন থেকে আসে)।
@@ -56,11 +99,65 @@ def download():
     result = fetch_tiktok_data(video_url)
 
     if result['success']:
+        # HD ফ্রি লিমিট শেষ হয়ে থাকলে, মেটাডেটাতেই সেটা জানিয়ে দেওয়া হয়
+        # যাতে ফ্রন্টএন্ড আগে থেকেই "লক" অবস্থা দেখাতে পারে। এখানে শুধু
+        # স্ট্যাটাস চেক করা হয় (কনজিউম করা হয় না) — আসল কনজিউম হয়
+        # /proxy-download-এ, যখন ব্যবহারকারী সত্যিই ফাইলটা নেয়।
+        if not result.get('is_photo') and result.get('hd_available'):
+            status = hd_limiter.get_status(_client_ip(), _get_or_create_device_id())
+            result['hd_limit'] = status
+            if status['locked']:
+                result['hd_available'] = False
+                result['hd_locked'] = True
         logger.info("Download success.")
         return jsonify(result)
     else:
         logger.error(f"Download failed: {result.get('error')}")
         return jsonify(result), 400
+
+
+@app.route('/ads/config')
+def ads_config_route():
+    """ফ্রন্টএন্ড এটা দিয়ে বুঝবে অ্যাড-গেট চালু আছে কিনা এবং কতক্ষণ অপেক্ষা করতে হবে।"""
+    return jsonify({
+        'enabled': ads_config.ads_enabled(),
+        'ad_link': ads_config.AD_LINK if ads_config.ads_enabled() else None,
+        'wait_seconds': ads_config.AD_WAIT_SECONDS,
+        'free_hd_limit': ads_config.FREE_HD_LIMIT,
+    })
+
+
+@app.route('/ads/unlock/start', methods=['POST'])
+def ads_unlock_start():
+    if not ads_config.ads_enabled():
+        return jsonify({'error': 'Ad unlock is not enabled.'}), 400
+    device_id = _get_or_create_device_id()
+    token = hd_limiter.start_unlock(_client_ip(), device_id)
+    return jsonify({'token': token, 'wait_seconds': ads_config.AD_WAIT_SECONDS})
+
+
+@app.route('/ads/unlock/claim', methods=['POST'])
+def ads_unlock_claim():
+    if not ads_config.ads_enabled():
+        return jsonify({'error': 'Ad unlock is not enabled.'}), 400
+    data = request.get_json(silent=True) or {}
+    token = data.get('token', '').strip()
+    if not token:
+        return jsonify({'error': 'Missing token.'}), 400
+
+    device_id = _get_or_create_device_id()
+    success, error = hd_limiter.claim_unlock(token, _client_ip(), device_id, ads_config.AD_WAIT_SECONDS)
+
+    if not success:
+        messages = {
+            'invalid_token': 'Invalid or expired unlock token.',
+            'mismatch': 'This unlock token is not valid for your session.',
+            'too_soon': 'Please wait for the ad timer to finish before claiming.',
+        }
+        return jsonify({'error': messages.get(error, 'Could not unlock.')}), 400
+
+    status = hd_limiter.get_status(_client_ip(), device_id)
+    return jsonify({'success': True, 'hd_limit': status})
 
 
 @app.route('/proxy-download')
@@ -84,6 +181,17 @@ def proxy_download():
     if not is_allowed_cdn_url(cdn_url):
         logger.warning(f"Blocked proxy-download for disallowed host: {cdn_url}")
         return jsonify({'error': 'Invalid URL'}), 400
+
+    # HD ফ্রি লিমিট এখানেই আসলে "consume" করা হয় (মেটাডেটা রেসপন্সে না) —
+    # কারণ এটাই আসল ফাইল ডাউনলোডের মুহূর্ত। এটা সরাসরি এই route হিট করেও
+    # (ফ্রন্টএন্ড বাইপাস করে) কেউ লিমিট এড়াতে পারবে না।
+    allowed, status = hd_limiter.try_consume(_client_ip(), _get_or_create_device_id())
+    if not allowed:
+        logger.warning("HD download blocked: free limit + unlock grants exhausted.")
+        return jsonify({
+            'error': 'Daily free HD limit reached. Watch an ad to unlock more, or try again later.',
+            'hd_limit': status,
+        }), 429
 
     try:
         headers = {
