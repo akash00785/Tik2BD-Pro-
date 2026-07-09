@@ -57,11 +57,14 @@ def add_device_cookie(response):
 ALLOWED_CDN_HOST_SUFFIXES = (
     '.tiktokcdn.com',
     '.tiktokcdn-us.com',
+    '.tiktokcdn-eu.com',
     '.tiktokv.com',
     '.tiktokv.us',
     '.muscdn.com',
     '.ibyteimg.com',
     '.byteicdn.com',
+    '.tokcdn.com',
+    '.byteoversea.com',
 )
 
 
@@ -99,10 +102,11 @@ def download():
     result = fetch_tiktok_data(video_url)
 
     if result['success']:
-        # HD ফ্রি লিমিট শেষ হয়ে থাকলে, মেটাডেটাতেই সেটা জানিয়ে দেওয়া হয়
-        # যাতে ফ্রন্টএন্ড আগে থেকেই "লক" অবস্থা দেখাতে পারে। এখানে শুধু
-        # স্ট্যাটাস চেক করা হয় (কনজিউম করা হয় না) — আসল কনজিউম হয়
-        # /proxy-download-এ, যখন ব্যবহারকারী সত্যিই ফাইলটা নেয়।
+        # HD-এর অবশিষ্ট ফ্রি লিমিট সবসময় মেটাডেটার সাথে পাঠানো হয় (শুধু
+        # লক হলে না) — যাতে ফ্রন্টএন্ড প্রতিবার "৪/৫ বাকি" জাতীয় কাউন্ট
+        # দেখাতে পারে, এবং লিমিট শেষ হলেই (৫ম ডাউনলোডের পরে) "লক" অবস্থা +
+        # অ্যাড দেখাতে পারে। আসল কনজিউম হয় /proxy-download-এ, যখন
+        # ব্যবহারকারী সত্যিই ফাইলটা নেয় — এখানে শুধু স্ট্যাটাস চেক হয়।
         if not result.get('is_photo') and result.get('hd_available'):
             status = hd_limiter.get_status(_client_ip(), _get_or_create_device_id())
             result['hd_limit'] = status
