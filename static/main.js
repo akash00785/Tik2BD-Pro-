@@ -127,7 +127,14 @@ function setLoading(loading) {
     }
 }
 
-// ===== HD daily-limit lock UI =====
+// ===== HD daily-limit UI =====
+function renderHdRemainingBadge(hdLimit) {
+    // লক না হওয়া অবস্থায় সবসময় "কতটা বাকি" দেখানো হয়, যাতে ব্যবহারকারী
+    // বুঝতে পারে একটার পর একটা ডাউনলোড করলে লিমিট কমছে।
+    if (!hdLimit || hdLimit.locked) return '';
+    return `<span class="hd-remaining-badge">HD বাকি আছে: ${hdLimit.remaining_free}/${hdLimit.limit}</span>`;
+}
+
 function renderHdLockBlock(hdLimit) {
     if (!hdLimit || !hdLimit.locked) return '';
 
@@ -136,7 +143,7 @@ function renderHdLockBlock(hdLimit) {
     return `
         <div class="hd-lock-box" id="hdLockBox" data-used="${hdLimit.used}" data-limit="${hdLimit.limit}">
             <p class="hd-lock-msg">
-                🔒 আজকের ফ্রি HD লিমিট শেষ (${hdLimit.used}/${hdLimit.limit})। প্রায় ${hours} ঘণ্টা পর আবার পাবেন।
+                🔒 আজকের ফ্রি HD লিমিট শেষ (${hdLimit.used}/${hdLimit.limit})। প্রায় ${hours} ঘণ্টা পর আবার পাবেন, অথবা এখনই বিজ্ঞাপন দেখে আনলক করুন।
             </p>
             <div id="hdUnlockArea"></div>
         </div>`;
@@ -239,6 +246,8 @@ function renderVideoResult(data) {
            </a>`
         : `<span class="result-btn sd" style="opacity:0.4;cursor:default;">${data.hd_locked ? 'HD Locked' : 'HD Unavailable'}</span>`;
 
+    const hdRemainingBadge = renderHdRemainingBadge(data.hd_limit);
+
     const sdBtn = sdProxy
         ? `<a href="${escapeHtml(sdProxy)}" class="result-btn sd" download="tiktok_normal.mp4">
                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -261,6 +270,7 @@ function renderVideoResult(data) {
                 ${hdBtn}
                 ${sdBtn}
             </div>
+            ${hdRemainingBadge}
             ${hdLockHtml}
         </div>`;
     showToast('Video found! Choose your quality.', 'success');

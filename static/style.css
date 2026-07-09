@@ -490,6 +490,17 @@ body {
     .photo-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
+.hd-remaining-badge {
+    display: inline-block;
+    margin-top: 0.75rem;
+    padding: 0.35rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border);
+}
+
 .hd-lock-box {
     margin-top: 1rem;
     padding: 1rem 1.25rem;
