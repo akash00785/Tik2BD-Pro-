@@ -127,24 +127,25 @@ function renderVideoResult(data) {
     const safeTitle  = escapeHtml((data.title  || 'Untitled Video').substring(0, 80));
     const safeAuthor = escapeHtml(data.author   || 'Unknown');
     const safeThumbnail = escapeHtml(data.thumbnail || '');
-    const hdProxy = data.hd_url ? proxyUrl(data.hd_url, 'tiktok_hd.mp4') : '';
-    const sdProxy = data.sd_url ? proxyUrl(data.sd_url, 'tiktok_sd.mp4') : '';
+    // HD → proxy server (forced download), SD → direct CDN link (opens in browser, saves bandwidth)
+    const hdProxy  = data.hd_url ? proxyUrl(data.hd_url, 'tiktok_hd.mp4') : '';
+    const sdDirect = data.sd_url ? escapeHtml(data.sd_url) : '';
 
     const thumbHtml = safeThumbnail
         ? `<img class="result-thumb" src="${safeThumbnail}" alt="Thumbnail" onerror="this.style.display='none'">`
         : '';
 
     const hdBtn = hdProxy
-        ? `<a href="${escapeHtml(hdProxy)}" class="result-btn hd">
+        ? `<a href="${escapeHtml(hdProxy)}" class="result-btn hd" download="tiktok_hd.mp4">
                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                HD Download
            </a>`
         : `<span class="result-btn sd" style="opacity:0.4;cursor:default;">HD Unavailable</span>`;
 
-    const sdBtn = sdProxy
-        ? `<a href="${escapeHtml(sdProxy)}" class="result-btn sd">
+    const sdBtn = sdDirect
+        ? `<a href="${sdDirect}" class="result-btn sd" target="_blank" rel="noopener noreferrer">
                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-               SD Download
+               Normal Download
            </a>`
         : '';
 
