@@ -33,3 +33,10 @@ logs/
 dist/
 build/
 *.egg-info/
+
+# HD limiter local database (per-IP/device download counters)
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm

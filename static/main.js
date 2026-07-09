@@ -127,6 +127,97 @@ function setLoading(loading) {
     }
 }
 
+// ===== HD daily-limit lock UI =====
+function renderHdLockBlock(hdLimit) {
+    if (!hdLimit || !hdLimit.locked) return '';
+
+    const hours = Math.max(1, Math.ceil((hdLimit.resets_in_seconds || 0) / 3600));
+
+    return `
+        <div class="hd-lock-box" id="hdLockBox" data-used="${hdLimit.used}" data-limit="${hdLimit.limit}">
+            <p class="hd-lock-msg">
+                🔒 আজকের ফ্রি HD লিমিট শেষ (${hdLimit.used}/${hdLimit.limit})। প্রায় ${hours} ঘণ্টা পর আবার পাবেন।
+            </p>
+            <div id="hdUnlockArea"></div>
+        </div>`;
+}
+
+async function initHdUnlockArea() {
+    const area = document.getElementById('hdUnlockArea');
+    if (!area) return;
+
+    let cfg;
+    try {
+        cfg = await (await fetch('/ads/config')).json();
+    } catch {
+        return;
+    }
+
+    if (!cfg.enabled) {
+        area.innerHTML = `<p class="hd-lock-sub">বিজ্ঞাপন শীঘ্রই আসছে — এখন আনলক করার উপায় নেই।</p>`;
+        return;
+    }
+
+    area.innerHTML = `<button class="result-btn hd" id="watchAdBtn">বিজ্ঞাপন দেখে আনলক করুন</button>`;
+    document.getElementById('watchAdBtn').addEventListener('click', () => startAdUnlockFlow(cfg));
+}
+
+async function startAdUnlockFlow(cfg) {
+    const area = document.getElementById('hdUnlockArea');
+    if (!area) return;
+
+    let startResp;
+    try {
+        startResp = await (await fetch('/ads/unlock/start', { method: 'POST' })).json();
+    } catch {
+        showToast('Network error. Please try again.', 'error');
+        return;
+    }
+
+    const token = startResp.token;
+    window.open(cfg.ad_link, '_blank', 'noopener,noreferrer');
+
+    let remaining = cfg.wait_seconds;
+    area.innerHTML = `<button class="result-btn sd" id="claimAdBtn" disabled>অপেক্ষা করুন... (${remaining}s)</button>`;
+    const claimBtn = document.getElementById('claimAdBtn');
+
+    const timer = setInterval(() => {
+        remaining -= 1;
+        if (remaining <= 0) {
+            clearInterval(timer);
+            claimBtn.disabled = false;
+            claimBtn.textContent = 'ডাউনলোড আনলক করুন';
+        } else {
+            claimBtn.textContent = `অপেক্ষা করুন... (${remaining}s)`;
+        }
+    }, 1000);
+
+    claimBtn.addEventListener('click', async () => {
+        claimBtn.disabled = true;
+        claimBtn.textContent = 'যাচাই করা হচ্ছে...';
+        try {
+            const res = await fetch('/ads/unlock/claim', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token }),
+            });
+            const result = await res.json();
+            if (result.success) {
+                showToast('আনলক সফল! এখন আবার HD ডাউনলোড করুন।', 'success');
+                area.innerHTML = `<p class="hd-lock-sub">✅ আনলক হয়েছে — উপরের লিংকটা আবার সাবমিট করুন।</p>`;
+            } else {
+                showToast(result.error || 'আনলক করা যায়নি।', 'error');
+                claimBtn.disabled = false;
+                claimBtn.textContent = 'আবার চেষ্টা করুন';
+            }
+        } catch {
+            showToast('Network error. Please try again.', 'error');
+            claimBtn.disabled = false;
+            claimBtn.textContent = 'আবার চেষ্টা করুন';
+        }
+    });
+}
+
 // ===== Render Result =====
 function renderVideoResult(data) {
     const safeTitle  = escapeHtml((data.title  || 'Untitled Video').substring(0, 80));
@@ -146,7 +237,7 @@ function renderVideoResult(data) {
                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                HD Download
            </a>`
-        : `<span class="result-btn sd" style="opacity:0.4;cursor:default;">HD Unavailable</span>`;
+        : `<span class="result-btn sd" style="opacity:0.4;cursor:default;">${data.hd_locked ? 'HD Locked' : 'HD Unavailable'}</span>`;
 
     const sdBtn = sdProxy
         ? `<a href="${escapeHtml(sdProxy)}" class="result-btn sd" download="tiktok_normal.mp4">
@@ -154,6 +245,8 @@ function renderVideoResult(data) {
                Normal Download
            </a>`
         : '';
+
+    const hdLockHtml = renderHdLockBlock(data.hd_limit);
 
     resultArea.innerHTML = `
         <div class="result-card">
@@ -168,8 +261,11 @@ function renderVideoResult(data) {
                 ${hdBtn}
                 ${sdBtn}
             </div>
+            ${hdLockHtml}
         </div>`;
     showToast('Video found! Choose your quality.', 'success');
+
+    if (data.hd_locked) initHdUnlockArea();
 }
 
 function renderPhotoResult(data) {
