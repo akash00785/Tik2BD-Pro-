@@ -11,7 +11,7 @@ urlInput.addEventListener('input', () => {
     urlInput.parentElement.style.borderColor = urlInput.value === '' ? '#374151' : (isValid ? '#06b6d4' : '#ef4444');
 });
 
-// 2. Paste Button Logic (ম্যানুয়ালি ক্লিকে কাজ করবে)
+// 2. Paste Button Logic
 async function pasteLink() {
     try {
         const text = await navigator.clipboard.readText();
@@ -60,7 +60,9 @@ async function processDownload() {
                         <p class="text-cyan-400 text-sm mb-6">Author: @${data.author}</p>
                         <div class="grid grid-cols-2 gap-4">
                             ${data.images.map((img, index) => `
-                                <a href="${img}" target="_blank" class="bg-slate-700 py-3 px-2 rounded-xl text-center font-bold hover:bg-cyan-600 transition truncate">Photo ${index + 1}</a>
+                                <a href="${img}" download="tiktok_photo_${index + 1}.jpg" target="_blank" class="bg-slate-700 py-3 px-2 rounded-xl text-center font-bold hover:bg-cyan-600 transition truncate">
+                                    Photo ${index + 1}
+                                </a>
                             `).join('')}
                         </div>
                     </div>
