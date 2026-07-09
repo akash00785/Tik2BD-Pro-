@@ -170,10 +170,15 @@ function renderPhotoResult(data) {
     const safeTitle  = escapeHtml(data.title  || 'TikTok Photos');
     const safeAuthor = escapeHtml(data.author || 'Unknown');
     const photos = (data.images || []).map((img, i) => `
-        <a href="${escapeHtml(proxyUrl(img, 'tiktok_photo_' + (i + 1) + '.jpg'))}" class="result-btn sd" style="grid-column:auto">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-            Photo ${i + 1}
-        </a>`).join('');
+        <div class="photo-card">
+            <div class="photo-preview">
+                <img src="${escapeHtml(img)}" alt="Photo ${i + 1}" loading="lazy" onerror="this.closest('.photo-preview').innerHTML='<div class=photo-broken>🖼️</div>'">
+            </div>
+            <a href="${escapeHtml(proxyUrl(img, 'tiktok_photo_' + (i + 1) + '.jpg'))}" class="photo-dl-btn" download="tiktok_photo_${i + 1}.jpg">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Download
+            </a>
+        </div>`).join('');
 
     resultArea.innerHTML = `
         <div class="result-card">
@@ -183,11 +188,11 @@ function renderPhotoResult(data) {
                     <span class="result-author">@${safeAuthor}</span>
                 </div>
             </div>
-            <div class="result-buttons" style="grid-template-columns:repeat(2,1fr)">
+            <div class="photo-grid">
                 ${photos}
             </div>
         </div>`;
-    showToast(`${data.images.length} photos found!`, 'success');
+    showToast(`${data.images.length}টি ফটো পাওয়া গেছে!`, 'success');
 }
 
 function renderError(message) {
