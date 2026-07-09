@@ -12,4 +12,3 @@ def is_valid_tiktok_url(url):
     pattern = r'^(https?://)?(www\.)?(tiktok\.com|vm\.tiktok\.com|vt\.tiktok\.com)/.+'
     
     return bool(re.match(pattern, url))
-  
