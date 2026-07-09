@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 import os
+from urllib.parse import urlparse
 import requests as req_lib
 from services.api_handler import fetch_tiktok_data
 from services.ytdlp_handler import stream_ytdlp_video
@@ -7,6 +8,31 @@ from utils.validators import is_valid_tiktok_url
 from services.logger import logger
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
+
+# TikTok-এর নিজস্ব CDN হোস্টগুলো (RapidAPI যে hd/sd লিংক ফেরত দেয়, সেগুলো
+# এই ডোমেইনগুলোর কোনো একটার সাব-ডোমেইন থেকে আসে)।
+ALLOWED_CDN_HOST_SUFFIXES = (
+    '.tiktokcdn.com',
+    '.tiktokcdn-us.com',
+    '.tiktokv.com',
+    '.tiktokv.us',
+    '.muscdn.com',
+    '.ibyteimg.com',
+    '.byteicdn.com',
+)
+
+
+def is_allowed_cdn_url(url):
+    """http(s) এবং TikTok CDN হোস্ট ছাড়া অন্য কোনো URL অনুমোদিত না —
+    এটা /proxy-download-কে open proxy হয়ে যাওয়া থেকে রক্ষা করে।"""
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    if parsed.scheme not in ('http', 'https') or not parsed.hostname:
+        return False
+    host = parsed.hostname.lower()
+    return any(host == s.lstrip('.') or host.endswith(s) for s in ALLOWED_CDN_HOST_SUFFIXES)
 
 @app.route('/')
 def home():
@@ -51,8 +77,12 @@ def proxy_download():
     if not cdn_url:
         return jsonify({'error': 'No URL provided'}), 400
 
-    # শুধু http/https URL অনুমোদিত — নিরাপত্তার জন্য
-    if not cdn_url.startswith(('http://', 'https://')):
+    # শুধু http/https URL অনুমোদিত, এবং শুধু TikTok-এর নিজস্ব CDN হোস্ট —
+    # নাহলে এই endpoint যেকোনো URL fetch করে দেওয়ার একটা "open proxy"
+    # হয়ে যায়, যা আক্রমণকারীরা আমাদের সার্ভারকে bandwidth relay বা
+    # নিজের পরিচয় আড়াল করার হাতিয়ার হিসেবে ব্যবহার করতে পারত।
+    if not is_allowed_cdn_url(cdn_url):
+        logger.warning(f"Blocked proxy-download for disallowed host: {cdn_url}")
         return jsonify({'error': 'Invalid URL'}), 400
 
     try:
