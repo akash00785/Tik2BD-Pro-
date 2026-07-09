@@ -22,6 +22,11 @@ function proxyUrl(cdnUrl, filename) {
     return `/proxy-download?url=${encodeURIComponent(cdnUrl)}&filename=${encodeURIComponent(filename)}`;
 }
 
+// ===== Normal (yt-dlp powered) download proxy — API key exhaustion-proof =====
+function proxyNormalUrl(videoUrl, filename) {
+    return `/proxy-download-normal?url=${encodeURIComponent(videoUrl)}&filename=${encodeURIComponent(filename)}`;
+}
+
 // ===== Toast Notification System =====
 function showToast(message, type = 'info', duration = 3500) {
     const container = document.getElementById('toastContainer');
@@ -127,9 +132,10 @@ function renderVideoResult(data) {
     const safeTitle  = escapeHtml((data.title  || 'Untitled Video').substring(0, 80));
     const safeAuthor = escapeHtml(data.author   || 'Unknown');
     const safeThumbnail = escapeHtml(data.thumbnail || '');
-    // HD → proxy server (forced download), SD → direct CDN link (opens in browser, saves bandwidth)
-    const hdProxy  = data.hd_url ? proxyUrl(data.hd_url, 'tiktok_hd.mp4') : '';
-    const sdDirect = data.sd_url ? escapeHtml(data.sd_url) : '';
+    // HD → RapidAPI (proxy server, forced download). Normal → yt-dlp (proxy
+    // server, independent of API key — keeps working even if HD key expires).
+    const hdProxy = data.hd_available && data.hd_url ? proxyUrl(data.hd_url, 'tiktok_hd.mp4') : '';
+    const sdProxy = data.sd_available && data.video_url ? proxyNormalUrl(data.video_url, 'tiktok_normal.mp4') : '';
 
     const thumbHtml = safeThumbnail
         ? `<img class="result-thumb" src="${safeThumbnail}" alt="Thumbnail" onerror="this.style.display='none'">`
@@ -142,8 +148,8 @@ function renderVideoResult(data) {
            </a>`
         : `<span class="result-btn sd" style="opacity:0.4;cursor:default;">HD Unavailable</span>`;
 
-    const sdBtn = sdDirect
-        ? `<a href="${sdDirect}" class="result-btn sd" target="_blank" rel="noopener noreferrer">
+    const sdBtn = sdProxy
+        ? `<a href="${escapeHtml(sdProxy)}" class="result-btn sd" download="tiktok_normal.mp4">
                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                Normal Download
            </a>`
