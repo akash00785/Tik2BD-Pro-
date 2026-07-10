@@ -19,7 +19,15 @@ import threading
 
 from ads_config import FREE_HD_LIMIT, UNLOCK_GRANTS
 
-DB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
+# Render-এ persistent disk যোগ করার পর তার মাউন্ট পাথ DATA_DIR এনভায়রনমেন্ট
+# ভ্যারিয়েবলে বসিয়ে দিলে ডাটাবেস ফাইলটা সেই স্থায়ী ডিস্কে থাকবে, তাই
+# সার্ভার রিস্টার্ট/রিডিপ্লয় হলেও HD ডাউনলোড কাউন্ট মুছে যাবে না। এই
+# ভ্যারিয়েবল সেট না থাকলে আগের মতোই প্রজেক্ট ফোল্ডারের ভেতরের data/
+# ফোল্ডারে থাকবে (Render ফ্রি প্ল্যানে এই ফোল্ডার রিস্টার্টে মুছে যায়)।
+DB_DIR = os.environ.get(
+    'DATA_DIR',
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
+)
 DB_PATH = os.path.join(DB_DIR, 'limiter.db')
 
 WINDOW_SECONDS = 24 * 60 * 60
