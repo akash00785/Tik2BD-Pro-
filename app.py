@@ -83,7 +83,7 @@ def is_allowed_cdn_url(url):
 @app.route('/')
 def home():
     """হোম পেজ রেন্ডার করা"""
-    return render_template('index.html')
+    return render_template('index.html', sticker_ad_code=ads_config.get_sticker_ad_code())
 
 @app.route('/download', methods=['POST'])
 def download():
