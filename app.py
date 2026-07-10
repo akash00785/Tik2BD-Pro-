@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context, g
 import os
+import re
 import secrets
 from urllib.parse import urlparse
 import requests as req_lib
@@ -14,6 +15,20 @@ app = Flask(__name__, template_folder='templates', static_folder='static')
 
 DEVICE_COOKIE_NAME = 'tik2bd_device'
 DEVICE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365  # ১ বছর
+
+
+def _safe_filename(name, fallback):
+    """
+    Content-Disposition হেডারে বসানোর আগে filename থেকে বিপজ্জনক
+    ক্যারেক্টার (quote, CR/LF, backslash) বাদ দেওয়া হয় — ব্যবহারকারী
+    ?filename= কুয়েরি প্যারামিটার দিয়ে হেডার/মান নিয়ন্ত্রণ করার চেষ্টা
+    করলেও যেন সেটা কাজ না করে (header/response splitting-এর ঝুঁকি কমাতে)।
+    """
+    if not name:
+        return fallback
+    cleaned = re.sub(r'[\r\n"\\\x00-\x1f]', '', str(name)).strip()
+    cleaned = cleaned[:150]
+    return cleaned or fallback
 
 
 def _client_ip():
@@ -50,6 +65,16 @@ def add_device_cookie(response):
             httponly=True,
             samesite='Lax',
         )
+    return response
+
+
+@app.after_request
+def add_security_headers(response):
+    """সাধারণ ব্রাউজার-লেভেল সিকিউরিটি হেডার — clickjacking, MIME-sniffing
+    ইত্যাদি ঠেকাতে সাহায্য করে, খরচ/ফিচার-ব্রেকিং কিছু না।"""
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
+    response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
     return response
 
 # TikTok-এর নিজস্ব CDN হোস্টগুলো (RapidAPI যে hd/sd লিংক ফেরত দেয়, সেগুলো
@@ -173,7 +198,7 @@ def proxy_download():
     Content-Disposition: attachment হেডার দিয়ে পাঠায়।
     """
     cdn_url = request.args.get('url', '').strip()
-    filename = request.args.get('filename', 'tiktok_video.mp4')
+    filename = _safe_filename(request.args.get('filename'), 'tiktok_video.mp4')
 
     if not cdn_url:
         return jsonify({'error': 'No URL provided'}), 400
@@ -249,7 +274,7 @@ def proxy_download_normal():
     (cookiejar) দিয়েই ডাউনলোড করা হয়।
     """
     video_url = request.args.get('url', '').strip()
-    filename = request.args.get('filename', 'tiktok_normal.mp4')
+    filename = _safe_filename(request.args.get('filename'), 'tiktok_normal.mp4')
 
     if not video_url or not is_valid_tiktok_url(video_url):
         return jsonify({'error': 'Invalid request'}), 400
