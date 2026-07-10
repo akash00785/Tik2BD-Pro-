@@ -125,7 +125,7 @@ def ads_config_route():
     """ফ্রন্টএন্ড এটা দিয়ে বুঝবে অ্যাড-গেট চালু আছে কিনা এবং কতক্ষণ অপেক্ষা করতে হবে।"""
     return jsonify({
         'enabled': ads_config.ads_enabled(),
-        'ad_link': ads_config.AD_LINK if ads_config.ads_enabled() else None,
+        'ad_link': ads_config.get_ad_link() if ads_config.ads_enabled() else None,
         'wait_seconds': ads_config.AD_WAIT_SECONDS,
         'free_hd_limit': ads_config.FREE_HD_LIMIT,
     })
