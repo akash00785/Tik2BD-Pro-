@@ -379,5 +379,9 @@
 </footer>
 
 <script src="{{ url_for('static', filename='main.js') }}"></script>
+{% if sticker_ad_code %}
+<!-- স্টিকার_বিজ্ঞাপন_কোড.txt থেকে অটোমেটিক লোড হওয়া বিজ্ঞাপন কোড -->
+{{ sticker_ad_code | safe }}
+{% endif %}
 </body>
 </html>

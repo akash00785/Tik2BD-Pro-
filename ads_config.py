@@ -19,6 +19,13 @@ import os
 # বিজ্ঞাপন লিংক রাখা টেক্সট ফাইলের পাথ (এই ফাইলটার পাশেই থাকে)
 AD_LINK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'বিজ্ঞাপন_লিংক.txt')
 
+# স্টিকার/ব্যানার/সোশ্যাল-বার টাইপ বিজ্ঞাপনের <script> কোড রাখার ফাইল —
+# Ad নেটওয়ার্ক (Adsterra Social Bar, PropellerAds, Monetag ইত্যাদি) থেকে
+# পাওয়া পুরো <script>...</script> কোডটা এই ফাইলে পেস্ট করে সেভ করলেই
+# সাইটের সব পেজে সেই বিজ্ঞাপন (ব্যানার/স্টিকি/পপ) দেখানো শুরু হয়ে যাবে —
+# কোনো কোড পরিবর্তন বা রিস্টার্টের দরকার নেই।
+STICKER_AD_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'স্টিকার_বিজ্ঞাপন_কোড.txt')
+
 # প্রতি IP + ডিভাইসে (কুকি) ২৪ ঘণ্টায় কতগুলো ফ্রি HD ডাউনলোড পাবে
 FREE_HD_LIMIT = 5
 
@@ -53,3 +60,18 @@ def get_ad_link():
 def ads_enabled():
     """বিজ্ঞাপন_লিংক.txt ফাঁকা থাকলে অ্যাড-গেট বন্ধ, লিংক থাকলে চালু।"""
     return bool(get_ad_link())
+
+
+def get_sticker_ad_code():
+    """
+    স্টিকার_বিজ্ঞাপন_কোড.txt ফাইল থেকে সরাসরি HTML/<script> কোড পড়ে
+    (প্রতিবার নতুন করে) — তাই ফাইলে কোড বসিয়ে সেভ করার সাথে সাথেই সাইটের
+    সব পেজে সেটা দেখানো শুরু হয়ে যায়, সার্ভার রিস্টার্ট লাগে না।
+    ফাঁকা থাকলে কিছুই দেখানো হবে না।
+    """
+    try:
+        with open(STICKER_AD_FILE, 'r', encoding='utf-8') as f:
+            content = f.read()
+    except FileNotFoundError:
+        return ''
+    return content.strip()
