@@ -12,8 +12,10 @@ def _fetch_via_rapidapi_cached(video_url):
     """
     cached = rapidapi_cache.get_cached(video_url)
     if cached is not None:
+        logging.info(f"RAPIDAPI_CACHE_HIT (no quota used): {video_url}")
         return cached
 
+    logging.info(f"RAPIDAPI_CALL (quota used): {video_url}")
     result = _fetch_via_rapidapi(video_url)
     rapidapi_cache.set_cached(video_url, result)
     return result
@@ -146,6 +148,7 @@ def fetch_tiktok_data(video_url):
                 return api_result if api_result.get('error') else ytdlp_result
             return _build_lazy_hd_result(video_url, ytdlp_result)
 
+    logging.info(f"PREVIEW_NO_RAPIDAPI (yt-dlp only, no quota used): {video_url}")
     ytdlp_result = fetch_ytdlp_preview(video_url)
 
     if not ytdlp_result.get('success'):
@@ -189,6 +192,7 @@ def resolve_hd_link(video_url):
     দেখে ডাউনলোড করে না তাদের জন্য কোটা খরচ হয় না।
     Returns dict: {'success': True, 'hd_url': ...} বা {'success': False, 'error': ...}
     """
+    logging.info(f"HD_RESOLVE_CLICKED: {video_url}")
     api_result = _fetch_via_rapidapi_cached(video_url)
 
     if not api_result.get('success'):
