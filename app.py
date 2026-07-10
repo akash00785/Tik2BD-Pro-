@@ -4,7 +4,7 @@ import re
 import secrets
 from urllib.parse import urlparse
 import requests as req_lib
-from services.api_handler import fetch_tiktok_data
+from services.api_handler import fetch_tiktok_data, resolve_hd_link
 from services.ytdlp_handler import stream_ytdlp_video
 from services import hd_limiter
 from utils.validators import is_valid_tiktok_url
@@ -130,8 +130,7 @@ def download():
         # HD-এর অবশিষ্ট ফ্রি লিমিট সবসময় মেটাডেটার সাথে পাঠানো হয় (শুধু
         # লক হলে না) — যাতে ফ্রন্টএন্ড প্রতিবার "৪/৫ বাকি" জাতীয় কাউন্ট
         # দেখাতে পারে, এবং লিমিট শেষ হলেই (৫ম ডাউনলোডের পরে) "লক" অবস্থা +
-        # অ্যাড দেখাতে পারে। আসল কনজিউম হয় /proxy-download-এ, যখন
-        # ব্যবহারকারী সত্যিই ফাইলটা নেয় — এখানে শুধু স্ট্যাটাস চেক হয়।
+        # অ্যাড দেখাতে পারে। এই চেকটা Upstash-ভিত্তিক, RapidAPI লাগে না।
         if not result.get('is_photo') and result.get('hd_available'):
             status = hd_limiter.get_status(_client_ip(), _get_or_create_device_id())
             result['hd_limit'] = status
@@ -143,6 +142,32 @@ def download():
     else:
         logger.error(f"Download failed: {result.get('error')}")
         return jsonify(result), 400
+
+
+@app.route('/hd/resolve', methods=['POST'])
+def hd_resolve():
+    """
+    HD Download বাটনে ক্লিক করার মুহূর্তে ডাকা হয় — এখানেই আসলে RapidAPI
+    কল হয় (cache-সহ)। ব্যবহারকারীর HD লিমিট আগেই শেষ হয়ে থাকলে RapidAPI-কে
+    না ডেকেই লকড রেসপন্স দেওয়া হয়, যাতে অপ্রয়োজনীয় কোটা খরচ না হয়
+    (আসল কনজিউম এখনো /proxy-download-এই হয়, এটা শুধু লিংক বের করে)।
+    """
+    data = request.get_json(silent=True) or {}
+    video_url = data.get('url', '').strip()
+
+    if not is_valid_tiktok_url(video_url):
+        return jsonify({'success': False, 'error': 'Invalid TikTok URL provided.'}), 400
+
+    status = hd_limiter.get_status(_client_ip(), _get_or_create_device_id())
+    if status['locked']:
+        return jsonify({'success': False, 'error': 'locked', 'hd_limit': status}), 429
+
+    result = resolve_hd_link(video_url)
+    if not result.get('success'):
+        return jsonify(result), 400
+
+    result['hd_limit'] = status
+    return jsonify(result)
 
 
 @app.route('/ads/config')

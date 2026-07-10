@@ -226,24 +226,24 @@ async function startAdUnlockFlow(cfg) {
 }
 
 // ===== Render Result =====
-function renderVideoResult(data) {
+function renderVideoResult(data, sourceUrl) {
     const safeTitle  = escapeHtml((data.title  || 'Untitled Video').substring(0, 80));
     const safeAuthor = escapeHtml(data.author   || 'Unknown');
     const safeThumbnail = escapeHtml(data.thumbnail || '');
-    // HD → RapidAPI (proxy server, forced download). Normal → yt-dlp (proxy
-    // server, independent of API key — keeps working even if HD key expires).
-    const hdProxy = data.hd_available && data.hd_url ? proxyUrl(data.hd_url, 'tiktok_hd.mp4') : '';
+    // Normal → yt-dlp (proxy server, independent of API key). HD এখন এখানে
+    // resolve করা হয় না — RapidAPI কোটা বাঁচাতে বাটনে ক্লিক করার সময়ই
+    // /hd/resolve কল হয় (দেখুন resolveAndDownloadHd)।
     const sdProxy = data.sd_available && data.video_url ? proxyNormalUrl(data.video_url, 'tiktok_normal.mp4') : '';
 
     const thumbHtml = safeThumbnail
         ? `<img class="result-thumb" src="${safeThumbnail}" alt="Thumbnail" onerror="this.style.display='none'">`
         : '';
 
-    const hdBtn = hdProxy
-        ? `<a href="${escapeHtml(hdProxy)}" class="result-btn hd" download="tiktok_hd.mp4">
+    const hdBtn = data.hd_available
+        ? `<button type="button" class="result-btn hd" id="hdResolveBtn">
                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                HD Download
-           </a>`
+           </button>`
         : `<span class="result-btn sd" style="opacity:0.4;cursor:default;">${data.hd_locked ? 'HD Locked' : 'HD Unavailable'}</span>`;
 
     const hdRemainingBadge = renderHdRemainingBadge(data.hd_limit);
@@ -275,7 +275,70 @@ function renderVideoResult(data) {
         </div>`;
     showToast('Video found! Choose your quality.', 'success');
 
+    if (data.hd_available) {
+        document.getElementById('hdResolveBtn')?.addEventListener('click', () => resolveAndDownloadHd(sourceUrl));
+    }
     if (data.hd_locked) initHdUnlockArea();
+}
+
+// ===== Resolve HD link only when the user actually clicks HD Download =====
+// এটাই RapidAPI-কে ডাকার একমাত্র জায়গা — তাই যারা শুধু প্রিভিউ দেখে HD
+// ডাউনলোড করে না, তাদের জন্য RapidAPI কোটা খরচ হয় না।
+async function resolveAndDownloadHd(sourceUrl) {
+    const btn = document.getElementById('hdResolveBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'খোঁজা হচ্ছে...';
+    }
+    try {
+        const res = await fetch('/hd/resolve', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: sourceUrl }),
+        });
+        const result = await res.json();
+
+        if (!result.success) {
+            if (result.error === 'locked') {
+                showToast('আজকের ফ্রি HD লিমিট শেষ।', 'error');
+                if (btn) {
+                    const wrap = document.createElement('span');
+                    wrap.innerHTML = renderHdLockBlock(result.hd_limit);
+                    btn.replaceWith(...wrap.children);
+                    initHdUnlockArea();
+                }
+            } else {
+                showToast(result.error || 'HD লিংক পাওয়া যায়নি।', 'error');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = 'HD Download';
+                }
+            }
+            return;
+        }
+
+        const downloadLink = document.createElement('a');
+        downloadLink.href = proxyUrl(result.hd_url, 'tiktok_hd.mp4');
+        downloadLink.download = 'tiktok_hd.mp4';
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        downloadLink.remove();
+
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'HD Download';
+        }
+        if (result.hd_limit) {
+            const badge = document.querySelector('.hd-remaining-badge');
+            if (badge) badge.outerHTML = renderHdRemainingBadge(result.hd_limit);
+        }
+    } catch {
+        showToast('Network error. Please try again.', 'error');
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'HD Download';
+        }
+    }
 }
 
 function renderPhotoResult(data) {
@@ -335,7 +398,7 @@ async function processDownload() {
         const data = await response.json();
 
         if (data.success) {
-            data.is_photo ? renderPhotoResult(data) : renderVideoResult(data);
+            data.is_photo ? renderPhotoResult(data) : renderVideoResult(data, url);
         } else {
             renderError(data.error || 'Something went wrong. Please try again.');
         }
