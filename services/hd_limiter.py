@@ -60,11 +60,16 @@ def _cmd(*parts):
 
 
 def _key_usage(ip, device_id):
-    return f'hd:used:{ip}:{device_id}'
+    # আগে key-টা ip+device_id দুটো মিলিয়ে বানানো হতো — কিন্তু মোবাইল
+    # নেটওয়ার্কে (4G/wifi সুইচ, carrier NAT) একই ব্যবহারকারীর IP প্রায়ই
+    # বদলে যায়, ফলে নতুন key তৈরি হয়ে যেতো এবং লিমিট ভুলভাবে ৫/৫-এ
+    # "রিসেট" হয়ে যাচ্ছিল যদিও device (কুকি) একই ছিল। device_id-টাই
+    # দীর্ঘস্থায়ী ও নির্ভরযোগ্য পরিচয়, তাই এখন শুধু device_id দিয়েই key।
+    return f'hd:used:{device_id}'
 
 
 def _key_grants(ip, device_id):
-    return f'hd:grants:{ip}:{device_id}'
+    return f'hd:grants:{device_id}'
 
 
 def _key_pending(token):
@@ -157,7 +162,10 @@ def claim_unlock(token, ip, device_id, wait_seconds):
         _cmd('del', pending_key)
         return False, 'invalid_token'
 
-    if row_ip != ip or row_device_id != device_id:
+    # IP মেলা বাধ্যতামূলক না — মোবাইল নেটওয়ার্কে অ্যাড দেখার সময়
+    # (৩০ সেকেন্ড অপেক্ষা) IP বদলে যাওয়াটা স্বাভাবিক। device_id-টাই
+    # (দীর্ঘস্থায়ী কুকি) মূল যাচাই।
+    if row_device_id != device_id:
         return False, 'mismatch'
 
     _cmd('del', pending_key)
