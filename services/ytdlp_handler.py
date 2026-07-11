@@ -89,6 +89,49 @@ def fetch_ytdlp_preview(video_url):
     }
 
 
+def resolve_normal_link(video_url):
+    """
+    Normal/SD ডাউনলোডের জন্য সরাসরি CDN URL বের করে দেয় (স্ট্রিম করে না) —
+    ব্রাউজার নিজে সরাসরি এই লিংকে গিয়ে ভিডিওটা আনবে, তাই আমাদের সার্ভারের
+    কোনো bandwidth খরচ হবে না। TikTok CDN আমাদের সার্ভারের (ডেটা-সেন্টার)
+    IP থেকে আসা রিকোয়েস্ট প্রায়ই 403 করে দেয়, কিন্তু সাধারণ ব্যবহারকারীর
+    ব্রাউজার/মোবাইল থেকে এই একই লিংকে অনুরোধ গেলে TikTok সেটা আটকায় না।
+
+    ট্রেড-অফ: cross-origin URL-এ ব্রাউজারের <a download> অ্যাট্রিবিউট কাজ
+    করে না, তাই লিংকটা নতুন ট্যাবে ভিডিও চালিয়ে দেয় — ব্যবহারকারীকে
+    ম্যানুয়ালি (থ্রি-ডট মেনু থেকে) "Save video" করতে হয়।
+
+    Returns: {'success': True, 'normal_url': url} বা {'success': False, 'error': ...}
+    """
+    try:
+        with yt_dlp.YoutubeDL(_YDL_OPTS) as ydl:
+            info = ydl.extract_info(video_url, download=False)
+    except yt_dlp.utils.DownloadError as e:
+        logging.error(f"resolve_normal_link DownloadError: {e}")
+        return {'success': False, 'error': 'ভিডিওটি প্রাইভেট বা পাওয়া যায়নি।'}
+    except Exception as e:
+        logging.error(f"resolve_normal_link unexpected error: {e}")
+        return {'success': False, 'error': 'yt-dlp দিয়ে ভিডিও প্রসেস করতে সমস্যা হয়েছে।'}
+
+    if not info:
+        return {'success': False, 'error': 'yt-dlp: কোনো তথ্য পাওয়া যায়নি।'}
+
+    av = _av_formats(info)
+    if av:
+        # normal/SD কোয়ালিটি: সবচেয়ে ছোট available format, একটাই থাকলে সেটাই।
+        obj = av[-1] if len(av) > 1 else av[0]
+    elif info.get('url'):
+        obj = info
+    else:
+        return {'success': False, 'error': 'এই ভিডিওর জন্য Normal কোয়ালিটি পাওয়া যায়নি।'}
+
+    url = obj.get('url')
+    if not url:
+        return {'success': False, 'error': 'এই ভিডিওর জন্য Normal কোয়ালিটি পাওয়া যায়নি।'}
+
+    return {'success': True, 'normal_url': url}
+
+
 def stream_ytdlp_video(video_url):
     """
     normal/SD ভিডিওটা yt-dlp-এর নিজের opener (ydl.urlopen) দিয়ে CDN থেকে

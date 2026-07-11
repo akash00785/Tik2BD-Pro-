@@ -22,9 +22,39 @@ function proxyUrl(cdnUrl, filename) {
     return `/proxy-download?url=${encodeURIComponent(cdnUrl)}&filename=${encodeURIComponent(filename)}`;
 }
 
-// ===== Normal (yt-dlp powered) download proxy — API key exhaustion-proof =====
-function proxyNormalUrl(videoUrl, filename) {
-    return `/proxy-download-normal?url=${encodeURIComponent(videoUrl)}&filename=${encodeURIComponent(filename)}`;
+// ===== Normal (yt-dlp powered) — direct CDN link, resolved on click =====
+// সার্ভারের মধ্য দিয়ে ফাইল পাস করানো হয় না (bandwidth বাঁচাতে) — ব্রাউজার
+// সরাসরি TikTok CDN থেকে ভিডিওটা আনবে। এতে নতুন ট্যাবে ভিডিও চালু হয়ে
+// যাবে, ব্যবহারকারীকে থ্রি-ডট মেনু থেকে ম্যানুয়ালি "Save video" করতে হবে।
+async function resolveAndOpenNormal(sourceUrl, btn) {
+    if (btn) {
+        btn.disabled = true;
+        btn.dataset.originalText = btn.textContent;
+        btn.textContent = 'খোঁজা হচ্ছে...';
+    }
+    try {
+        const res = await fetch('/normal/resolve', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: sourceUrl }),
+        });
+        const result = await res.json();
+
+        if (!result.success) {
+            showToast(result.error || 'Normal ভিডিও লিংক পাওয়া যায়নি।', 'error');
+            return;
+        }
+
+        window.open(result.normal_url, '_blank', 'noopener,noreferrer');
+        showToast('ভিডিও নতুন ট্যাবে খুলেছে — থ্রি-ডট মেনু থেকে "Save video" করুন।', 'info', 5000);
+    } catch {
+        showToast('Network error. Please try again.', 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = btn.dataset.originalText || 'Normal Download';
+        }
+    }
 }
 
 // ===== Toast Notification System =====
@@ -230,10 +260,10 @@ function renderVideoResult(data, sourceUrl) {
     const safeTitle  = escapeHtml((data.title  || 'Untitled Video').substring(0, 80));
     const safeAuthor = escapeHtml(data.author   || 'Unknown');
     const safeThumbnail = escapeHtml(data.thumbnail || '');
-    // Normal → yt-dlp (proxy server, independent of API key). HD এখন এখানে
+    // Normal → yt-dlp, সরাসরি CDN লিংক (bandwidth-free)। HD এখন এখানে
     // resolve করা হয় না — RapidAPI কোটা বাঁচাতে বাটনে ক্লিক করার সময়ই
     // /hd/resolve কল হয় (দেখুন resolveAndDownloadHd)।
-    const sdProxy = data.sd_available && data.video_url ? proxyNormalUrl(data.video_url, 'tiktok_normal.mp4') : '';
+    const normalEnabled = Boolean(data.sd_available && data.video_url);
 
     const thumbHtml = safeThumbnail
         ? `<img class="result-thumb" src="${safeThumbnail}" alt="Thumbnail" onerror="this.style.display='none'">`
@@ -248,11 +278,11 @@ function renderVideoResult(data, sourceUrl) {
 
     const hdRemainingBadge = renderHdRemainingBadge(data.hd_limit);
 
-    const sdBtn = sdProxy
-        ? `<a href="${escapeHtml(sdProxy)}" class="result-btn sd" download="tiktok_normal.mp4">
+    const sdBtn = normalEnabled
+        ? `<button type="button" class="result-btn sd" id="normalResolveBtn">
                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                Normal Download
-           </a>`
+           </button>`
         : '';
 
     const hdLockHtml = renderHdLockBlock(data.hd_limit);
@@ -277,6 +307,10 @@ function renderVideoResult(data, sourceUrl) {
 
     if (data.hd_available) {
         document.getElementById('hdResolveBtn')?.addEventListener('click', () => resolveAndDownloadHd(sourceUrl));
+    }
+    if (normalEnabled) {
+        const normalBtn = document.getElementById('normalResolveBtn');
+        normalBtn?.addEventListener('click', () => resolveAndOpenNormal(sourceUrl, normalBtn));
     }
     if (data.hd_locked) initHdUnlockArea();
 }

@@ -5,7 +5,7 @@ import secrets
 from urllib.parse import urlparse
 import requests as req_lib
 from services.api_handler import fetch_tiktok_data, resolve_hd_link
-from services.ytdlp_handler import stream_ytdlp_video
+from services.ytdlp_handler import stream_ytdlp_video, resolve_normal_link
 from services import hd_limiter
 from utils.validators import is_valid_tiktok_url
 from services.logger import logger
@@ -286,6 +286,27 @@ def proxy_download():
     except req_lib.RequestException as e:
         logger.error(f"Proxy error: {str(e)}")
         return jsonify({'error': 'Could not fetch video. Please try again.'}), 502
+
+
+@app.route('/normal/resolve', methods=['POST'])
+def normal_resolve():
+    """
+    Normal Download বাটনে ক্লিক করার সময় ডাকা হয় — yt-dlp দিয়ে সরাসরি
+    CDN URL বের করে ফেরত দেয়। ফ্রন্টএন্ড এই URL সার্ভারের মধ্য দিয়ে না
+    এনে সরাসরি নতুন ট্যাবে খোলে (window.open) — এতে Render-এর bandwidth
+    কোটা থেকে কিছুই কাটে না, কারণ ভিডিওটা কখনো আমাদের সার্ভার হয়ে যায় না।
+    """
+    data = request.get_json(silent=True) or {}
+    video_url = data.get('url', '').strip()
+
+    if not is_valid_tiktok_url(video_url):
+        return jsonify({'success': False, 'error': 'Invalid TikTok URL provided.'}), 400
+
+    result = resolve_normal_link(video_url)
+    if not result.get('success'):
+        return jsonify(result), 400
+
+    return jsonify(result)
 
 
 @app.route('/proxy-download-normal')
