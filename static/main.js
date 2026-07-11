@@ -318,7 +318,22 @@ function renderVideoResult(data, sourceUrl) {
 // ===== Resolve HD link only when the user actually clicks HD Download =====
 // এটাই RapidAPI-কে ডাকার একমাত্র জায়গা — তাই যারা শুধু প্রিভিউ দেখে HD
 // ডাউনলোড করে না, তাদের জন্য RapidAPI কোটা খরচ হয় না।
+
+// দ্রুত ডাবল-ট্যাপ/ডাবল-ক্লিক করলে একই ভিডিওর জন্য দুইটা আলাদা HD
+// ডাউনলোড রিকোয়েস্ট চলে যেত (প্রতিটাই আলাদা করে ফ্রি লিমিট কোটা কেটে
+// নিত) — কারণ বাটন disable হওয়ার আগেই দ্বিতীয় ক্লিকটা রেজিস্টার হয়ে
+// যাচ্ছিল, বিশেষ করে মোবাইলে দ্রুত ডাবল-ট্যাপে। এই সিঙ্ক্রোনাস flag-টা
+// (btn.disabled-এর উপর নির্ভর না করে) প্রথম লাইনেই সেট হয়, তাই দ্বিতীয়
+// ক্লিক ইভেন্ট যতই দ্রুত আসুক, সেটা সাথে সাথে বাতিল হয়ে যায়।
+let hdDownloadBusy = false;
+
 async function resolveAndDownloadHd(sourceUrl) {
+    if (hdDownloadBusy) {
+        showToast('একটা HD ডাউনলোড ইতিমধ্যে চলছে — অপেক্ষা করো।', 'info', 2000);
+        return;
+    }
+    hdDownloadBusy = true;
+
     const btn = document.getElementById('hdResolveBtn');
     if (btn) {
         btn.disabled = true;
@@ -333,6 +348,7 @@ async function resolveAndDownloadHd(sourceUrl) {
         const result = await res.json();
 
         if (!result.success) {
+            hdDownloadBusy = false;
             if (result.error === 'locked') {
                 showToast('আজকের ফ্রি HD লিমিট শেষ।', 'error');
                 if (btn) {
@@ -359,14 +375,24 @@ async function resolveAndDownloadHd(sourceUrl) {
         downloadLink.remove();
 
         if (btn) {
-            btn.disabled = false;
-            btn.textContent = 'HD Download';
+            btn.textContent = 'ডাউনলোড হচ্ছে...';
         }
         if (result.hd_limit) {
             const badge = document.querySelector('.hd-remaining-badge');
             if (badge) badge.outerHTML = renderHdRemainingBadge(result.hd_limit);
         }
+
+        // আসল ফাইল ডাউনলোড ব্রাউজারে শুরু হওয়ার পরও কিছু সেকেন্ড বাটন লক
+        // রাখা হয়, যাতে ততক্ষণে কেউ আবার ট্যাপ করলেও দ্বিতীয় কোটা না কাটে।
+        setTimeout(() => {
+            hdDownloadBusy = false;
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = 'HD Download';
+            }
+        }, 4000);
     } catch {
+        hdDownloadBusy = false;
         showToast('Network error. Please try again.', 'error');
         if (btn) {
             btn.disabled = false;
