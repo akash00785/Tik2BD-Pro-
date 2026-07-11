@@ -22,38 +22,37 @@ function proxyUrl(cdnUrl, filename) {
     return `/proxy-download?url=${encodeURIComponent(cdnUrl)}&filename=${encodeURIComponent(filename)}`;
 }
 
-// ===== Normal (yt-dlp powered) — direct CDN link, resolved on click =====
-// সার্ভারের মধ্য দিয়ে ফাইল পাস করানো হয় না (bandwidth বাঁচাতে) — ব্রাউজার
-// সরাসরি TikTok CDN থেকে ভিডিওটা আনবে। এতে নতুন ট্যাবে ভিডিও চালু হয়ে
-// যাবে, ব্যবহারকারীকে থ্রি-ডট মেনু থেকে ম্যানুয়ালি "Save video" করতে হবে।
+// ===== Normal (yt-dlp powered) — সার্ভার proxy দিয়ে সরাসরি ডাউনলোড =====
+// /proxy-download-normal ব্যবহার করা হচ্ছে কারণ TikTok CDN-এ সরাসরি
+// browser request করলে 403 দেয় — yt-dlp extraction session-এর cookie
+// (msToken/ttwid) ছাড়া CDN রাজি হয় না। তাই সার্ভারের মধ্য দিয়েই আনা হয়।
 async function resolveAndOpenNormal(sourceUrl, btn) {
     if (btn) {
         btn.disabled = true;
         btn.dataset.originalText = btn.textContent;
-        btn.textContent = 'খোঁজা হচ্ছে...';
+        btn.textContent = 'ডাউনলোড হচ্ছে...';
     }
     try {
-        const res = await fetch('/normal/resolve', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: sourceUrl }),
-        });
-        const result = await res.json();
+        const filename = 'tiktok_normal.mp4';
+        const proxyNormalUrl = `/proxy-download-normal?url=${encodeURIComponent(sourceUrl)}&filename=${encodeURIComponent(filename)}`;
 
-        if (!result.success) {
-            showToast(result.error || 'Normal ভিডিও লিংক পাওয়া যায়নি।', 'error');
-            return;
-        }
+        const downloadLink = document.createElement('a');
+        downloadLink.href = proxyNormalUrl;
+        downloadLink.download = filename;
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        downloadLink.remove();
 
-        window.open(result.normal_url, '_blank', 'noopener,noreferrer');
-        showToast('ভিডিও নতুন ট্যাবে খুলেছে — থ্রি-ডট মেনু থেকে "Save video" করুন।', 'info', 5000);
+        showToast('ডাউনলোড শুরু হয়েছে!', 'success', 3000);
     } catch {
         showToast('Network error. Please try again.', 'error');
     } finally {
-        if (btn) {
-            btn.disabled = false;
-            btn.textContent = btn.dataset.originalText || 'Normal Download';
-        }
+        setTimeout(() => {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = btn.dataset.originalText || 'Normal Download';
+            }
+        }, 3000);
     }
 }
 
