@@ -95,44 +95,40 @@ def _fetch_via_rapidapi(video_url):
 
 def fetch_tiktok_data(video_url):
     """
-    HD ডাউনলোড RapidAPI key দিয়ে আসে, Normal ডাউনলোড yt-dlp দিয়ে —
-    দুইটা একে অপর থেকে সম্পূর্ণ স্বাধীন।
-    RapidAPI key না থাকলেও Normal Download কাজ করবে।
+    HD এবং Normal উভয়ই RapidAPI থেকে আসে।
+    - HD  → hdplay URL (high quality, watermark-free)
+    - Normal → play URL (standard quality)
+    yt-dlp TikTok bot detection-এ block হয়, তাই সরানো হয়েছে।
     """
     api_result = _fetch_via_rapidapi(video_url)
 
-    # Photo slideshow — সম্পূর্ণ RapidAPI-নির্ভর
-    if api_result.get('success') and api_result.get('is_photo'):
+    if not api_result.get('success'):
         return api_result
 
-    # yt-dlp দিয়ে Normal Download-এর তথ্য আনা
-    ytdlp_result = fetch_ytdlp_preview(video_url)
+    # Photo slideshow
+    if api_result.get('is_photo'):
+        return api_result
 
-    # দুটোই ফেইল করলে
-    if not api_result.get('success') and not ytdlp_result.get('success'):
-        return api_result if api_result.get('error') else ytdlp_result
-
-    hd_available = bool(api_result.get('success') and api_result.get('hd_url'))
-    sd_available = bool(ytdlp_result.get('success') and ytdlp_result.get('sd_available'))
+    hd_url  = api_result.get('hd_url')   # hdplay — HD quality CDN URL
+    sd_url  = api_result.get('sd_url')   # play   — Normal quality CDN URL
+    # hdplay এবং play একই হলে (API limitation) sd হিসেবে play ব্যবহার করা হবে
+    hd_available = bool(hd_url)
+    sd_available = bool(sd_url)
 
     if not hd_available and not sd_available:
-        return {'success': False, 'error': 'ভিডিও পাওয়া যায়নি বা ডাউনলোড লিংক বের করা যায়নি।'}
-
-    # টাইটেল/থাম্বনেইল: RapidAPI সফল হলে তার থেকে নেওয়া হয়
-    source = api_result if api_result.get('success') else ytdlp_result
+        return {'success': False, 'error': 'ভিডিও পাওয়া যায়নি।'}
 
     return {
         'success': True,
         'is_photo': False,
         'hd_available': hd_available,
-        'hd_url': api_result.get('hd_url') if hd_available else None,
+        'hd_url': hd_url,
+        # sd_url হলো RapidAPI-র play CDN URL — সরাসরি browser-এ কাজ করে
+        # server proxy দরকার নেই, bandwidth শূন্য
         'sd_available': sd_available,
-        # TikTok CDN URL সরাসরি browser-এ কাজ করে না (msToken/ttwid cookie দরকার)
-        # তাই original TikTok URL রাখা হয় — proxy-download-normal route yt-dlp
-        # session দিয়ে সঠিক headers + cookies সহ CDN থেকে stream করে।
-        'video_url': video_url if sd_available else None,
-        'thumbnail': source.get('thumbnail'),
-        'title': source.get('title') or 'Untitled Video',
-        'author': source.get('author') or 'Unknown',
-        'duration': source.get('duration') or 0,
+        'video_url': sd_url,
+        'thumbnail': api_result.get('thumbnail'),
+        'title': api_result.get('title') or 'Untitled Video',
+        'author': api_result.get('author') or 'Unknown',
+        'duration': api_result.get('duration') or 0,
     }

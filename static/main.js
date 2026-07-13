@@ -252,9 +252,9 @@ function renderVideoResult(data) {
     // HD URL store (RapidAPI CDN) — সরাসরি নতুন ট্যাবে খোলা যায়
     _hdUrl = (data.hd_available && data.hd_url) ? data.hd_url : '';
 
-    // Normal → /watch page: ব্রাউজারে <video> player-এ play হবে, download নয়
-    const watchUrl = (data.sd_available && data.video_url)
-        ? '/watch?url=' + encodeURIComponent(data.video_url) : '';
+    // Normal → RapidAPI play CDN URL, সরাসরি browser-এ খোলা যায়
+    // HD button-এর মতোই কাজ করে — server bandwidth শূন্য
+    const normalUrl = (data.sd_available && data.video_url) ? data.video_url : '';
 
     const thumbHtml = safeThumbnail
         ? `<img class="result-thumb" src="${safeThumbnail}" alt="Thumbnail" onerror="this.style.display='none'">`
@@ -270,10 +270,9 @@ function renderVideoResult(data) {
 
     const hdRemainingBadge = renderHdRemainingBadge(data.hd_limit);
 
-    // Normal: /watch page → নতুন ট্যাবে ব্রাউজার video player-এ play হবে
-    // Long-press → Save করলে একবারই download হবে → bandwidth সাশ্রয়
-    const sdBtn = watchUrl
-        ? `<a href="${escapeHtml(watchUrl)}" class="result-btn sd" target="_blank" rel="noopener noreferrer">
+    // Normal: RapidAPI play CDN URL সরাসরি নতুন ট্যাবে — server proxy নেই
+    const sdBtn = normalUrl
+        ? `<a id="_normalLink" href="#" class="result-btn sd" target="_blank" rel="noopener noreferrer">
                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                Normal Download
            </a>`
@@ -298,28 +297,32 @@ function renderVideoResult(data) {
             ${hdLockHtml}
         </div>`;
 
-    // HD link-এর href প্রোগ্রামেটিক্যালি সেট — XSS-safe
+    // HD link href — XSS-safe programmatic set
     if (_hdUrl) {
         const hdLink = document.getElementById('_hdLink');
         if (hdLink) {
             hdLink.href = _hdUrl;
-            // Click হলে background-এ /hd/consume call → limit কমবে
-            // CDN URL সরাসরি খোলে, server bandwidth নেই
+            // Click হলে background-এ /hd/consume → limit কমে, badge update
             hdLink.addEventListener('click', function () {
                 fetch('/hd/consume', { method: 'POST' })
                     .then(r => r.json())
                     .then(res => {
                         if (res.hd_limit) {
-                            // badge update করা
                             const badge = document.querySelector('.hd-remaining-badge');
                             if (badge && !res.hd_limit.locked) {
                                 badge.textContent = `HD বাকি আছে: ${res.hd_limit.remaining_free}/${res.hd_limit.limit}`;
                             }
                         }
                     })
-                    .catch(() => { /* নেটওয়ার্ক সমস্যা হলে চুপচাপ ignore */ });
-            }, { once: true }); // প্রতিটি ক্লিকে একবারই consume হবে
+                    .catch(() => {});
+            }, { once: true });
         }
+    }
+
+    // Normal link href — RapidAPI play CDN URL, XSS-safe set
+    if (normalUrl) {
+        const normalLink = document.getElementById('_normalLink');
+        if (normalLink) normalLink.href = normalUrl;
     }
 
     showToast('Video found! Choose your quality.', 'success');
