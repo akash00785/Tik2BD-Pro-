@@ -112,9 +112,18 @@ def fetch_ytdlp_preview(video_url):
     av = _av_formats(info)
     sd_available = bool(av) or bool(info.get('url'))
 
+    # সরাসরি CDN URL বের করা — ব্যান্ডউইথ বাঁচাতে ব্রাউজারে পাঠানো হবে
+    sd_url = ''
+    if av:
+        best = av[-1] if len(av) > 1 else av[0]
+        sd_url = best.get('url', '')
+    elif info.get('url'):
+        sd_url = info.get('url', '')
+
     return {
         'success': True,
         'sd_available': sd_available,
+        'sd_url': sd_url,
         'title': info.get('title') or 'Untitled Video',
         'author': info.get('uploader') or info.get('uploader_id') or 'Unknown',
         'thumbnail': info.get('thumbnail') or '',

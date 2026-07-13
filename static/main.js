@@ -2,6 +2,29 @@
 //  Tik2BD Pro — main.js
 // =============================================
 
+// ===== Onclick Popunder বিজ্ঞাপন (প্রতি session-এ একবার) =====
+(function () {
+    let _adFired = false;
+    document.addEventListener('click', function () {
+        if (!_adFired) {
+            _adFired = true;
+            window.open('https://omg10.com/4/11269673', '_blank', 'noopener');
+        }
+    }, true);
+})();
+
+// ===== বর্তমান ভিডিওর CDN URL (নতুন ট্যাবে খোলার জন্য) =====
+let _videoUrls = { hd: '', normal: '' };
+
+function openVideoInTab(type) {
+    const url = _videoUrls[type];
+    if (url) {
+        window.open(url, '_blank', 'noopener,noreferrer');
+    } else {
+        showToast('ডাউনলোড লিংক পাওয়া যায়নি।', 'error');
+    }
+}
+
 const urlInput    = document.getElementById('urlInput');
 const clearBtn    = document.getElementById('clearBtn');
 const pasteBtn    = document.getElementById('pasteBtn');
@@ -230,29 +253,30 @@ function renderVideoResult(data) {
     const safeTitle  = escapeHtml((data.title  || 'Untitled Video').substring(0, 80));
     const safeAuthor = escapeHtml(data.author   || 'Unknown');
     const safeThumbnail = escapeHtml(data.thumbnail || '');
-    // HD → RapidAPI (proxy server, forced download). Normal → yt-dlp (proxy
-    // server, independent of API key — keeps working even if HD key expires).
-    const hdProxy = data.hd_available && data.hd_url ? proxyUrl(data.hd_url, 'tiktok_hd.mp4') : '';
-    const sdProxy = data.sd_available && data.video_url ? proxyNormalUrl(data.video_url, 'tiktok_normal.mp4') : '';
+
+    // CDN URL সরাসরি module variable-এ রাখা — নতুন ট্যাবে খোলা হবে
+    // (server proxy ছাড়া, ব্যান্ডউইথ বাঁচানো)
+    _videoUrls.hd     = (data.hd_available && data.hd_url)    ? data.hd_url    : '';
+    _videoUrls.normal = (data.sd_available && data.video_url)  ? data.video_url : '';
 
     const thumbHtml = safeThumbnail
         ? `<img class="result-thumb" src="${safeThumbnail}" alt="Thumbnail" onerror="this.style.display='none'">`
         : '';
 
-    const hdBtn = hdProxy
-        ? `<a href="${escapeHtml(hdProxy)}" class="result-btn hd" download="tiktok_hd.mp4">
+    const hdBtn = _videoUrls.hd
+        ? `<button class="result-btn hd" onclick="openVideoInTab('hd')">
                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                HD Download
-           </a>`
+           </button>`
         : `<span class="result-btn sd" style="opacity:0.4;cursor:default;">${data.hd_locked ? 'HD Locked' : 'HD Unavailable'}</span>`;
 
     const hdRemainingBadge = renderHdRemainingBadge(data.hd_limit);
 
-    const sdBtn = sdProxy
-        ? `<a href="${escapeHtml(sdProxy)}" class="result-btn sd" download="tiktok_normal.mp4">
+    const sdBtn = _videoUrls.normal
+        ? `<button class="result-btn sd" onclick="openVideoInTab('normal')">
                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                Normal Download
-           </a>`
+           </button>`
         : '';
 
     const hdLockHtml = renderHdLockBlock(data.hd_limit);
