@@ -17,10 +17,7 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-// ===== Normal (SD) — RapidAPI থেকে পাওয়া CDN লিংক সরাসরি নতুন ট্যাবে
-// খোলা হয়, ঠিক HD-এর মতোই — Render সার্ভারের মধ্য দিয়ে ফাইলটা যায় না,
-// তাই bandwidth কাটে না। ব্যবহারকারীকে ৩-ডট মেনু থেকে ম্যানুয়ালি
-// "Save video" করতে হয় (cross-origin URL-এ <a download> কাজ করে না)।
+// ===== Normal (SD) — সরাসরি CDN URL দিয়ে নতুন ট্যাবে খোলা =====
 function openNormalDownload(sdUrl, btn) {
     if (btn) {
         btn.disabled = true;
@@ -34,6 +31,41 @@ function openNormalDownload(sdUrl, btn) {
             btn.textContent = 'Normal Download';
         }
     }, 3000);
+}
+
+// ===== Normal (SD) — yt-dlp resolve করে তারপর খোলা =====
+// sd_url আগে থেকে না থাকলে (yt-dlp preview case) এই ফাংশন ডাকা হয়।
+async function resolveAndDownloadNormal(sourceUrl, btn) {
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'খোঁজা হচ্ছে...';
+    }
+    try {
+        const res = await fetch('/normal/resolve', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: sourceUrl }),
+        });
+        const result = await res.json();
+
+        if (!result.success) {
+            showToast(result.error || 'Normal ডাউনলোড লিংক পাওয়া যায়নি।', 'error');
+            if (btn) { btn.disabled = false; btn.textContent = 'Normal Download'; }
+            return;
+        }
+
+        // CDN URL নতুন ট্যাবে খোলা হয় — ব্যবহারকারী ৩-ডট মেনু থেকে সেভ করবেন
+        window.open(result.normal_url, '_blank', 'noopener,noreferrer');
+        showToast('ভিডিও নতুন ট্যাবে খুলেছে — উপরের ৩-ডট মেনু থেকে "Save video" করুন।', 'info', 5000);
+
+        if (btn) {
+            btn.textContent = 'খোলা হয়েছে!';
+            setTimeout(() => { btn.disabled = false; btn.textContent = 'Normal Download'; }, 3000);
+        }
+    } catch {
+        showToast('Network error. Please try again.', 'error');
+        if (btn) { btn.disabled = false; btn.textContent = 'Normal Download'; }
+    }
 }
 
 // ===== Toast Notification System =====
@@ -81,7 +113,6 @@ function startCounters() {
     });
 }
 
-// Run counters when hero stats come into view
 const observer = new IntersectionObserver(entries => {
     entries.forEach(e => { if (e.isIntersecting) { startCounters(); observer.disconnect(); } });
 }, { threshold: 0.3 });
@@ -138,8 +169,6 @@ function setLoading(loading) {
 
 // ===== HD daily-limit UI =====
 function renderHdRemainingBadge(hdLimit) {
-    // লক না হওয়া অবস্থায় সবসময় "কতটা বাকি" দেখানো হয়, যাতে ব্যবহারকারী
-    // বুঝতে পারে একটার পর একটা ডাউনলোড করলে লিমিট কমছে।
     if (!hdLimit || hdLimit.locked) return '';
     return `<span class="hd-remaining-badge">HD বাকি আছে: ${hdLimit.remaining_free}/${hdLimit.limit}</span>`;
 }
@@ -239,9 +268,10 @@ function renderVideoResult(data, sourceUrl) {
     const safeTitle  = escapeHtml((data.title  || 'Untitled Video').substring(0, 80));
     const safeAuthor = escapeHtml(data.author   || 'Unknown');
     const safeThumbnail = escapeHtml(data.thumbnail || '');
-    // Normal (SD) লিংক RapidAPI থেকে প্রিভিউর সময়ই চলে আসে, তাই বাটনে
-    // ক্লিক করলে সরাসরি ওপেন করা যায় — আলাদা resolve কলের দরকার নেই।
-    const normalEnabled = Boolean(data.sd_available && data.sd_url);
+
+    // sd_url আগে থেকে আছে (RapidAPI fallback) নাকি resolve করতে হবে (yt-dlp case)
+    const normalEnabled = Boolean(data.sd_available);
+    const hasSdUrlDirect = Boolean(data.sd_url);
 
     const thumbHtml = safeThumbnail
         ? `<img class="result-thumb" src="${safeThumbnail}" alt="Thumbnail" onerror="this.style.display='none'">`
@@ -288,21 +318,19 @@ function renderVideoResult(data, sourceUrl) {
     }
     if (normalEnabled) {
         const normalBtn = document.getElementById('normalResolveBtn');
-        normalBtn?.addEventListener('click', () => openNormalDownload(data.sd_url, normalBtn));
+        if (hasSdUrlDirect) {
+            // RapidAPI fallback — sd_url সরাসরি আছে
+            normalBtn?.addEventListener('click', () => openNormalDownload(data.sd_url, normalBtn));
+        } else {
+            // yt-dlp preview — /normal/resolve দিয়ে আনতে হবে
+            normalBtn?.addEventListener('click', () => resolveAndDownloadNormal(sourceUrl, normalBtn));
+        }
     }
     if (data.hd_locked) initHdUnlockArea();
 }
 
 // ===== Resolve HD link only when the user actually clicks HD Download =====
-// এটাই RapidAPI-কে ডাকার একমাত্র জায়গা — তাই যারা শুধু প্রিভিউ দেখে HD
-// ডাউনলোড করে না, তাদের জন্য RapidAPI কোটা খরচ হয় না।
-
-// দ্রুত ডাবল-ট্যাপ/ডাবল-ক্লিক করলে একই ভিডিওর জন্য দুইটা আলাদা HD
-// ডাউনলোড রিকোয়েস্ট চলে যেত (প্রতিটাই আলাদা করে ফ্রি লিমিট কোটা কেটে
-// নিত) — কারণ বাটন disable হওয়ার আগেই দ্বিতীয় ক্লিকটা রেজিস্টার হয়ে
-// যাচ্ছিল, বিশেষ করে মোবাইলে দ্রুত ডাবল-ট্যাপে। এই সিঙ্ক্রোনাস flag-টা
-// (btn.disabled-এর উপর নির্ভর না করে) প্রথম লাইনেই সেট হয়, তাই দ্বিতীয়
-// ক্লিক ইভেন্ট যতই দ্রুত আসুক, সেটা সাথে সাথে বাতিল হয়ে যায়।
+// এটাই RapidAPI-কে ডাকার একমাত্র জায়গা।
 let hdDownloadBusy = false;
 
 async function resolveAndDownloadHd(sourceUrl) {
@@ -345,11 +373,7 @@ async function resolveAndDownloadHd(sourceUrl) {
             return;
         }
 
-        // সরাসরি TikTok CDN-এ নতুন ট্যাবে খোলা হয় — আমাদের সার্ভারের মধ্য
-        // দিয়ে ফাইলটা আর যায় না, তাই Render-এর bandwidth কোটা থেকে কিছু
-        // কাটে না। ট্রেড-অফ: cross-origin URL-এ <a download> কাজ করে না,
-        // তাই ভিডিওটা নতুন ট্যাবে চলতে শুরু করবে — ব্যবহারকারীকে ৩-ডট
-        // মেনু থেকে "Save video" করতে হবে।
+        // সরাসরি TikTok CDN-এ নতুন ট্যাবে খোলা হয়
         window.open(result.hd_url, '_blank', 'noopener,noreferrer');
         showToast('ভিডিও নতুন ট্যাবে খুলেছে — উপরের ৩-ডট মেনু থেকে "Save video" করুন।', 'info', 5000);
 
@@ -361,8 +385,6 @@ async function resolveAndDownloadHd(sourceUrl) {
             if (badge) badge.outerHTML = renderHdRemainingBadge(result.hd_limit);
         }
 
-        // আসল ফাইল ডাউনলোড ব্রাউজারে শুরু হওয়ার পরও কিছু সেকেন্ড বাটন লক
-        // রাখা হয়, যাতে ততক্ষণে কেউ আবার ট্যাপ করলেও দ্বিতীয় কোটা না কাটে।
         setTimeout(() => {
             hdDownloadBusy = false;
             if (btn) {
@@ -380,11 +402,7 @@ async function resolveAndDownloadHd(sourceUrl) {
     }
 }
 
-// ছবি ডাউনলোডে ব্যবহারকারী একটাই ক্লিকে ফাইল সেভ হয়ে যাক এটা চান (আগে যেমন
-// ছিল), তাই এখানে সরাসরি CDN ওপেনের বদলে ছোট /proxy-download রুট দিয়েই
-// আনা হয় — Content-Disposition: attachment হেডার বসানো যায় বলে ব্রাউজার
-// নিজে থেকেই ডাউনলোড শুরু করে, নতুন ট্যাব খুলতে হয় না। ছবি ভিডিওর চেয়ে
-// অনেক ছোট বলে এই সামান্য bandwidth খরচ গ্রহণযোগ্য (ব্যবহারকারীর সিদ্ধান্ত)।
+// ===== Photo Download — /proxy-download দিয়ে সরাসরি ডাউনলোড =====
 function proxyUrl(cdnUrl, filename) {
     return `/proxy-download?url=${encodeURIComponent(cdnUrl)}&filename=${encodeURIComponent(filename)}`;
 }
@@ -470,7 +488,7 @@ function toggleFaq(btn) {
     if (!isOpen) item.classList.add('open');
 }
 
-// ===== Smooth Scroll for nav links =====
+// ===== Smooth Scroll =====
 document.querySelectorAll('a[href^="#"]').forEach(a => {
     a.addEventListener('click', e => {
         const target = document.querySelector(a.getAttribute('href'));

@@ -18,12 +18,6 @@ DEVICE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365  # ১ বছর
 
 
 def _safe_filename(name, fallback):
-    """
-    Content-Disposition হেডারে বসানোর আগে filename থেকে বিপজ্জনক
-    ক্যারেক্টার (quote, CR/LF, backslash) বাদ দেওয়া হয় — ব্যবহারকারী
-    ?filename= কুয়েরি প্যারামিটার দিয়ে হেডার/মান নিয়ন্ত্রণ করার চেষ্টা
-    করলেও যেন সেটা কাজ না করে (header/response splitting-এর ঝুঁকি কমাতে)।
-    """
     if not name:
         return fallback
     cleaned = re.sub(r'[\r\n"\\\x00-\x1f]', '', str(name)).strip()
@@ -32,7 +26,6 @@ def _safe_filename(name, fallback):
 
 
 def _client_ip():
-    # Render/অন্য কোনো রিভার্স প্রক্সির পেছনে থাকলে X-Forwarded-For থাকতে পারে
     forwarded = request.headers.get('X-Forwarded-For', '')
     if forwarded:
         return forwarded.split(',')[0].strip()
@@ -40,11 +33,6 @@ def _client_ip():
 
 
 def _get_or_create_device_id():
-    """
-    কুকি থেকে device id পড়ে; না থাকলে নতুন একটা বানিয়ে request-এর
-    জন্য `flask.g`-তে রেখে দেয়, যাতে একই রিকোয়েস্টে limiter সঠিক
-    id-টাই পায়, এবং রেসপন্সে সেই id-টাই কুকি হিসেবে সেভ হয়।
-    """
     existing = request.cookies.get(DEVICE_COOKIE_NAME)
     if existing:
         return existing
@@ -55,8 +43,6 @@ def _get_or_create_device_id():
 
 @app.after_request
 def add_device_cookie(response):
-    """প্রতিটা ভিজিটরের জন্য একটা দীর্ঘস্থায়ী, র‍্যান্ডম device কুকি বসানো হয় —
-    এটাই HD লিমিট গণনার সময় IP-এর সাথে মিলিয়ে ব্যবহার করা হয়।"""
     if not request.cookies.get(DEVICE_COOKIE_NAME) and hasattr(g, '_new_device_id'):
         response.set_cookie(
             DEVICE_COOKIE_NAME,
@@ -70,15 +56,12 @@ def add_device_cookie(response):
 
 @app.after_request
 def add_security_headers(response):
-    """সাধারণ ব্রাউজার-লেভেল সিকিউরিটি হেডার — clickjacking, MIME-sniffing
-    ইত্যাদি ঠেকাতে সাহায্য করে, খরচ/ফিচার-ব্রেকিং কিছু না।"""
     response.headers.setdefault('X-Content-Type-Options', 'nosniff')
     response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
     response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
     return response
 
-# TikTok-এর নিজস্ব CDN হোস্টগুলো (RapidAPI যে hd/sd লিংক ফেরত দেয়, সেগুলো
-# এই ডোমেইনগুলোর কোনো একটার সাব-ডোমেইন থেকে আসে)।
+
 ALLOWED_CDN_HOST_SUFFIXES = (
     '.tiktokcdn.com',
     '.tiktokcdn-us.com',
@@ -90,12 +73,12 @@ ALLOWED_CDN_HOST_SUFFIXES = (
     '.byteicdn.com',
     '.tokcdn.com',
     '.byteoversea.com',
+    '.tiktokstaticb.com',
+    '.akamaized.net',
 )
 
 
 def is_allowed_cdn_url(url):
-    """http(s) এবং TikTok CDN হোস্ট ছাড়া অন্য কোনো URL অনুমোদিত না —
-    এটা /proxy-download-কে open proxy হয়ে যাওয়া থেকে রক্ষা করে।"""
     try:
         parsed = urlparse(url)
     except ValueError:
@@ -105,14 +88,18 @@ def is_allowed_cdn_url(url):
     host = parsed.hostname.lower()
     return any(host == s.lstrip('.') or host.endswith(s) for s in ALLOWED_CDN_HOST_SUFFIXES)
 
+
 @app.route('/')
 def home():
-    """হোম পেজ রেন্ডার করা"""
     return render_template('index.html', sticker_ad_code=ads_config.get_sticker_ad_code())
+
 
 @app.route('/download', methods=['POST'])
 def download():
-    """ভিডিও ডাউনলোডের মেইন API এন্ডপয়েন্ট"""
+    """ভিডিও/ফটো ডাউনলোডের মেইন API এন্ডপয়েন্ট।
+    প্রথমে yt-dlp দিয়ে চেষ্টা করে, না হলে RapidAPI fallback।
+    HD বাটনে ক্লিক না করলে RapidAPI কোটা খরচ হয় না।
+    """
     data = request.get_json(silent=True)
     if not data:
         return jsonify({'success': False, 'error': 'Invalid request. JSON body required.'}), 400
@@ -127,10 +114,6 @@ def download():
     result = fetch_tiktok_data(video_url)
 
     if result['success']:
-        # HD-এর অবশিষ্ট ফ্রি লিমিট সবসময় মেটাডেটার সাথে পাঠানো হয় (শুধু
-        # লক হলে না) — যাতে ফ্রন্টএন্ড প্রতিবার "৪/৫ বাকি" জাতীয় কাউন্ট
-        # দেখাতে পারে, এবং লিমিট শেষ হলেই (৫ম ডাউনলোডের পরে) "লক" অবস্থা +
-        # অ্যাড দেখাতে পারে। এই চেকটা Upstash-ভিত্তিক, RapidAPI লাগে না।
         if not result.get('is_photo') and result.get('hd_available'):
             status = hd_limiter.get_status(_client_ip(), _get_or_create_device_id())
             result['hd_limit'] = status
@@ -147,16 +130,8 @@ def download():
 @app.route('/hd/resolve', methods=['POST'])
 def hd_resolve():
     """
-    HD Download বাটনে ক্লিক করার মুহূর্তে ডাকা হয় — এখানেই আসলে RapidAPI
-    কল হয় (cache-সহ)। ব্যবহারকারীর HD লিমিট আগেই শেষ হয়ে থাকলে RapidAPI-কে
-    না ডেকেই লকড রেসপন্স দেওয়া হয়, যাতে অপ্রয়োজনীয় কোটা খরচ না হয়
-    (আসল কনজিউম এখনো /proxy-download-এই হয়, এটা শুধু লিংক বের করে)।
-    এখন থেকে HD ভিডিওটা সার্ভারের মধ্য দিয়ে প্রক্সি না হয়ে সরাসরি ব্রাউজার
-    থেকে TikTok CDN-এ খোলা হয় (bandwidth বাঁচাতে) — তাই আসল ফাইল ডাউনলোডের
-    কোনো আলাদা server touchpoint আর নেই। তাই ফ্রি লিমিট "consume" করাও
-    এখানেই সরিয়ে আনা হয়েছে (আগে /proxy-download-এ হতো), কারণ এই
-    এন্ডপয়েন্টই এখন একমাত্র জায়গা যেখানে সত্যিকারের RapidAPI খরচ হয় এবং
-    ব্যবহারকারী hd_url পেয়ে যায়।
+    HD Download বাটনে ক্লিক করার মুহূর্তে ডাকা হয় —
+    এখানেই আসলে RapidAPI কল হয় (cache-সহ)।
     """
     data = request.get_json(silent=True) or {}
     video_url = data.get('url', '').strip()
@@ -174,7 +149,7 @@ def hd_resolve():
 
     allowed, status = hd_limiter.try_consume(_client_ip(), _get_or_create_device_id())
     if not allowed:
-        logger.warning("HD download blocked: free limit + unlock grants exhausted (race at resolve time).")
+        logger.warning("HD download blocked: free limit + unlock grants exhausted.")
         return jsonify({'success': False, 'error': 'locked', 'hd_limit': status}), 429
 
     result['hd_limit'] = status
@@ -183,7 +158,6 @@ def hd_resolve():
 
 @app.route('/ads/config')
 def ads_config_route():
-    """ফ্রন্টএন্ড এটা দিয়ে বুঝবে অ্যাড-গেট চালু আছে কিনা এবং কতক্ষণ অপেক্ষা করতে হবে।"""
     return jsonify({
         'enabled': ads_config.ads_enabled(),
         'ad_link': ads_config.get_ad_link() if ads_config.ads_enabled() else None,
@@ -228,14 +202,8 @@ def ads_unlock_claim():
 @app.route('/proxy-download')
 def proxy_download():
     """
-    TikTok CDN URL প্রক্সি করে সরাসরি ডাউনলোড করানো — এখন আর ফ্রন্টএন্ড
-    থেকে সাধারণভাবে ডাকা হয় না (HD/ফটো ডাউনলোড এখন সরাসরি ব্রাউজার থেকে
-    CDN-এ যায়, bandwidth বাঁচাতে)। এই endpoint শুধু fallback হিসেবে রাখা
-    হয়েছে, যদি কোনো কারণে সরাসরি open কাজ না করে।
-
-    HD ফ্রি লিমিট এখন /hd/resolve-এই consume হয় (RapidAPI কল করার সময়),
-    এখানে আর না — কারণ এখানেই যদি আবার consume করা হয়, তাহলে একটা HD
-    ডাউনলোডে দুইবার কোটা কাটা হয়ে যেত।
+    TikTok CDN URL প্রক্সি করে সরাসরি ডাউনলোড করানো।
+    ফটো ডাউনলোডের জন্য ব্যবহার হয় (Content-Disposition: attachment)।
     """
     cdn_url = request.args.get('url', '').strip()
     filename = _safe_filename(request.args.get('filename'), 'tiktok_video.mp4')
@@ -243,10 +211,6 @@ def proxy_download():
     if not cdn_url:
         return jsonify({'error': 'No URL provided'}), 400
 
-    # শুধু http/https URL অনুমোদিত, এবং শুধু TikTok-এর নিজস্ব CDN হোস্ট —
-    # নাহলে এই endpoint যেকোনো URL fetch করে দেওয়ার একটা "open proxy"
-    # হয়ে যায়, যা আক্রমণকারীরা আমাদের সার্ভারকে bandwidth relay বা
-    # নিজের পরিচয় আড়াল করার হাতিয়ার হিসেবে ব্যবহার করতে পারত।
     if not is_allowed_cdn_url(cdn_url):
         logger.warning(f"Blocked proxy-download for disallowed host: {cdn_url}")
         return jsonify({'error': 'Invalid URL'}), 400
@@ -263,7 +227,7 @@ def proxy_download():
         cdn_resp = req_lib.get(cdn_url, headers=headers, stream=True, timeout=60)
         cdn_resp.raise_for_status()
 
-        content_type = cdn_resp.headers.get('Content-Type', 'video/mp4')
+        content_type = cdn_resp.headers.get('Content-Type', 'image/jpeg')
         content_length = cdn_resp.headers.get('Content-Length')
 
         response_headers = {
@@ -289,16 +253,15 @@ def proxy_download():
         return jsonify({'error': 'Download timed out. Please try again.'}), 504
     except req_lib.RequestException as e:
         logger.error(f"Proxy error: {str(e)}")
-        return jsonify({'error': 'Could not fetch video. Please try again.'}), 502
+        return jsonify({'error': 'Could not fetch file. Please try again.'}), 502
 
 
 @app.route('/normal/resolve', methods=['POST'])
 def normal_resolve():
     """
-    Normal Download বাটনে ক্লিক করার সময় ডাকা হয় — yt-dlp দিয়ে সরাসরি
-    CDN URL বের করে ফেরত দেয়। ফ্রন্টএন্ড এই URL সার্ভারের মধ্য দিয়ে না
-    এনে সরাসরি নতুন ট্যাবে খোলে (window.open) — এতে Render-এর bandwidth
-    কোটা থেকে কিছুই কাটে না, কারণ ভিডিওটা কখনো আমাদের সার্ভার হয়ে যায় না।
+    Normal Download বাটনে ক্লিক করার সময় ডাকা হয় —
+    yt-dlp দিয়ে সরাসরি CDN URL বের করে ফেরত দেয়।
+    RapidAPI কোটা খরচ হয় না।
     """
     data = request.get_json(silent=True) or {}
     video_url = data.get('url', '').strip()
@@ -316,12 +279,7 @@ def normal_resolve():
 @app.route('/proxy-download-normal')
 def proxy_download_normal():
     """
-    Normal (SD) ডাউনলোড — yt-dlp দিয়ে সরাসরি TikTok পোস্ট URL থেকে স্ট্রিম
-    করা হয়, RapidAPI key-এর উপর নির্ভর না করে। HD-এর মতো এখানে CDN URL
-    ব্যবহার করা হয় না, কারণ yt-dlp-এর তোলা CDN URL-এ raw requests দিয়ে
-    হিট করলে TikTok 403 Forbidden দেয় — extraction session-এর cookie
-    (msToken/ttwid) ছাড়া CDN রাজি হয় না। তাই একই yt-dlp session
-    (cookiejar) দিয়েই ডাউনলোড করা হয়।
+    Normal (SD) ডাউনলোড — yt-dlp দিয়ে সরাসরি TikTok পোস্ট URL থেকে স্ট্রিম।
     """
     video_url = request.args.get('url', '').strip()
     filename = _safe_filename(request.args.get('filename'), 'tiktok_normal.mp4')

@@ -3,7 +3,6 @@ import yt_dlp
 from yt_dlp.utils import sanitized_Request
 
 # TikTok CDN নির্দিষ্ট User-Agent/Referer না থাকলে 403 Forbidden দেয়।
-# fallback হিসেবে ব্যবহার হয় যদি yt-dlp নিজের http_headers না দেয়।
 DEFAULT_HEADERS = {
     'User-Agent': (
         'Mozilla/5.0 (Linux; Android 12; SM-G991B) AppleWebKit/537.36 '
@@ -19,13 +18,16 @@ _YDL_OPTS = {
     'noplaylist': True,
 }
 
+# ফটো স্লাইডশো পোস্টের জন্য noplaylist=False দরকার
+_YDL_OPTS_PHOTO = {
+    'quiet': True,
+    'no_warnings': True,
+    'skip_download': True,
+    'noplaylist': False,
+}
+
 
 def _quality_key(f):
-    """
-    TikTok formats-এ 'height' প্রায়ই ভুল/একই রকম রিপোর্ট হয়, তাই
-    filesize/bitrate অনুযায়ী sort করা হয়। watermark ছাড়া মূল ফাইলটিকে
-    (format_id/format_note এ "download" থাকে) সবচেয়ে বেশি priority দেওয়া হয়।
-    """
     label = f"{f.get('format_id') or ''} {f.get('format_note') or ''}".lower()
     no_watermark_bonus = 1 if 'download' in label else 0
     return (
@@ -57,14 +59,53 @@ def _headers_for(obj, info):
     return headers
 
 
+def _extract_photo_images(info):
+    """
+    TikTok ফটো স্লাইডশো পোস্ট থেকে ছবির URL গুলো বের করা।
+    yt-dlp ফটো পোস্টকে playlist হিসেবে রিটার্ন করে, entries-এ প্রতিটা ছবি থাকে।
+    """
+    entries = info.get('entries') or []
+    images = []
+
+    for entry in entries:
+        if not entry:
+            continue
+        # প্রতিটা entry-তে url বা formats থাকতে পারে
+        url = entry.get('url') or ''
+        ext = (entry.get('ext') or '').lower()
+        vcodec = entry.get('vcodec') or ''
+        acodec = entry.get('acodec') or ''
+
+        # Image entry: video codec নেই, বা image extension আছে
+        if url and (
+            ext in ('jpg', 'jpeg', 'png', 'webp', 'heic')
+            or (vcodec == 'none' and acodec == 'none')
+            or (vcodec == 'none' and not acodec)
+        ):
+            images.append(url)
+        elif not url:
+            # formats থেকে চেষ্টা করা
+            for fmt in (entry.get('formats') or []):
+                furl = fmt.get('url') or ''
+                fext = (fmt.get('ext') or '').lower()
+                if furl and fext in ('jpg', 'jpeg', 'png', 'webp', 'heic'):
+                    images.append(furl)
+                    break
+
+    return images
+
+
 def fetch_ytdlp_preview(video_url):
     """
-    yt-dlp দিয়ে ভিডিওর প্রিভিউ তথ্য (title, author, thumbnail) এবং normal
-    কোয়ালিটি ডাউনলোডের জন্য availability বের করা। এটা RapidAPI key-এর
-    উপর নির্ভর করে না, তাই key মেয়াদ ফুরিয়ে গেলেও "Normal Download" কাজ করবে।
+    yt-dlp দিয়ে ভিডিওর প্রিভিউ তথ্য (title, author, thumbnail) এবং
+    normal কোয়ালিটি ডাউনলোডের জন্য availability বের করা।
+    TikTok ফটো স্লাইডশো পোস্টও ডিটেক্ট করে।
+
+    API key-এর উপর নির্ভর করে না — key মেয়াদ ফুরিয়ে গেলেও কাজ করবে।
     """
+    # প্রথমে noplaylist=False দিয়ে চেষ্টা — ফটো পোস্টের জন্য দরকার
     try:
-        with yt_dlp.YoutubeDL(_YDL_OPTS) as ydl:
+        with yt_dlp.YoutubeDL(_YDL_OPTS_PHOTO) as ydl:
             info = ydl.extract_info(video_url, download=False)
     except yt_dlp.utils.DownloadError as e:
         logging.error(f"yt-dlp preview DownloadError: {e}")
@@ -76,11 +117,25 @@ def fetch_ytdlp_preview(video_url):
     if not info:
         return {'success': False, 'error': 'yt-dlp: কোনো তথ্য পাওয়া যায়নি।'}
 
+    # ফটো স্লাইডশো চেক: entries আছে কিনা
+    if info.get('entries') is not None:
+        images = _extract_photo_images(info)
+        if images:
+            return {
+                'success': True,
+                'is_photo': True,
+                'images': images,
+                'title': info.get('title') or 'TikTok Photos',
+                'author': info.get('uploader') or info.get('uploader_id') or 'Unknown',
+            }
+
+    # Normal video
     av = _av_formats(info)
     sd_available = bool(av) or bool(info.get('url'))
 
     return {
         'success': True,
+        'is_photo': False,
         'sd_available': sd_available,
         'title': info.get('title') or 'Untitled Video',
         'author': info.get('uploader') or info.get('uploader_id') or 'Unknown',
@@ -91,17 +146,8 @@ def fetch_ytdlp_preview(video_url):
 
 def resolve_normal_link(video_url):
     """
-    Normal/SD ডাউনলোডের জন্য সরাসরি CDN URL বের করে দেয় (স্ট্রিম করে না) —
-    ব্রাউজার নিজে সরাসরি এই লিংকে গিয়ে ভিডিওটা আনবে, তাই আমাদের সার্ভারের
-    কোনো bandwidth খরচ হবে না। TikTok CDN আমাদের সার্ভারের (ডেটা-সেন্টার)
-    IP থেকে আসা রিকোয়েস্ট প্রায়ই 403 করে দেয়, কিন্তু সাধারণ ব্যবহারকারীর
-    ব্রাউজার/মোবাইল থেকে এই একই লিংকে অনুরোধ গেলে TikTok সেটা আটকায় না।
-
-    ট্রেড-অফ: cross-origin URL-এ ব্রাউজারের <a download> অ্যাট্রিবিউট কাজ
-    করে না, তাই লিংকটা নতুন ট্যাবে ভিডিও চালিয়ে দেয় — ব্যবহারকারীকে
-    ম্যানুয়ালি (থ্রি-ডট মেনু থেকে) "Save video" করতে হয়।
-
-    Returns: {'success': True, 'normal_url': url} বা {'success': False, 'error': ...}
+    Normal/SD ডাউনলোডের জন্য সরাসরি CDN URL বের করে দেয় —
+    ব্রাউজার নিজে সরাসরি এই লিংকে গিয়ে ভিডিওটা আনবে।
     """
     try:
         with yt_dlp.YoutubeDL(_YDL_OPTS) as ydl:
@@ -118,7 +164,6 @@ def resolve_normal_link(video_url):
 
     av = _av_formats(info)
     if av:
-        # normal/SD কোয়ালিটি: সবচেয়ে ছোট available format, একটাই থাকলে সেটাই।
         obj = av[-1] if len(av) > 1 else av[0]
     elif info.get('url'):
         obj = info
@@ -134,10 +179,9 @@ def resolve_normal_link(video_url):
 
 def stream_ytdlp_video(video_url):
     """
-    normal/SD ভিডিওটা yt-dlp-এর নিজের opener (ydl.urlopen) দিয়ে CDN থেকে
-    স্ট্রিম করা হয় — কারণ TikTok CDN শুধু matching headers দেখেই রাজি হয়
-    না, extraction session-এর cookie (msToken/ttwid) লাগে। তাই raw
-    `requests.get()` ব্যবহার করা হয়নি।
+    normal/SD ভিডিওটা yt-dlp-এর নিজের opener দিয়ে CDN থেকে স্ট্রিম করা।
+    TikTok CDN শুধু matching headers দেখেই রাজি হয় না, extraction
+    session-এর cookie লাগে — তাই একই yt-dlp session দিয়েই ডাউনলোড করা হয়।
 
     Returns: (ydl, cdn_response) or None
     """
@@ -155,7 +199,6 @@ def stream_ytdlp_video(video_url):
 
     av = _av_formats(info)
     if av:
-        # normal/SD কোয়ালিটি: সবচেয়ে ছোট available format, একটাই থাকলে সেটাই।
         obj = av[-1] if len(av) > 1 else av[0]
     elif info.get('url'):
         obj = info

@@ -2,12 +2,12 @@ import requests
 import logging
 from config import key_manager, TIMEOUT
 from services import rapidapi_cache
+from services.ytdlp_handler import fetch_ytdlp_preview
 
 
 def _fetch_via_rapidapi_cached(video_url):
     """
-    _fetch_via_rapidapi()-এর ফলাফল অল্প সময়ের জন্য ক্যাশ করে রাখে —
-    একই ভিডিও লিংক ঘনঘন/বহুবার এলে প্রতিবার RapidAPI কোটা খরচ না করে।
+    _fetch_via_rapidapi()-এর ফলাফল অল্প সময়ের জন্য ক্যাশ করে রাখে।
     """
     cached = rapidapi_cache.get_cached(video_url)
     if cached is not None:
@@ -22,10 +22,7 @@ def _fetch_via_rapidapi_cached(video_url):
 
 def _fetch_via_rapidapi(video_url):
     """
-    RapidAPI key ব্যবহার করে HD ডাউনলোড লিংক ও ফটো স্লাইডশো ডেটা আনার
-    জন্য মূল ফাংশন। key না থাকলে বা সব key মেয়াদোত্তীর্ণ/exhausted হলে
-    success=False রিটার্ন করবে — কিন্তু এতে পুরো রিকোয়েস্ট ফেইল হবে না,
-    কারণ Normal ডাউনলোড এখন এর উপর নির্ভর করে না (দেখুন fetch_tiktok_data)।
+    RapidAPI key ব্যবহার করে HD ডাউনলোড লিংক ও ফটো স্লাইডশো ডেটা আনা।
     """
     api_url = "https://tiktok-video-no-watermark2.p.rapidapi.com/"
 
@@ -59,12 +56,10 @@ def _fetch_via_rapidapi(video_url):
                 key_manager.mark_failed(key_obj['val'])
                 continue
 
-            # FIX: non-200 এরর এখন লগ করা হচ্ছে
             if response.status_code != 200:
                 logging.error(f"API returned status {response.status_code} for URL: {video_url}")
                 continue
 
-            # FIX: JSON parse আলাদাভাবে handle করা হচ্ছে
             try:
                 result = response.json()
             except ValueError:
@@ -74,7 +69,6 @@ def _fetch_via_rapidapi(video_url):
             if result.get('code') == 0:
                 d = result.get('data', {})
 
-                # Check if it is a Slideshow/Photo mode
                 if d.get('images'):
                     return {
                         'success': True,
@@ -84,7 +78,6 @@ def _fetch_via_rapidapi(video_url):
                         'author': d.get('author', {}).get('unique_id') or "Unknown"
                     }
 
-                # Standard Video mode
                 return {
                     'success': True,
                     'is_photo': False,
@@ -113,45 +106,69 @@ def _fetch_via_rapidapi(video_url):
 
 def fetch_tiktok_data(video_url):
     """
-    আগে normal ভিডিওর প্রিভিউ RapidAPI কোটা বাঁচাতে yt-dlp দিয়ে আনা হতো
-    (RapidAPI শুধু HD বাটনে ক্লিক করলে ডাকা হতো)। কিন্তু TikTok এখন
-    Render-এর মতো ডেটাসেন্টার/ক্লাউড IP থেকে yt-dlp-এর ওয়েবপেজ-info
-    রিকোয়েস্টও ব্লক করে দিচ্ছে — ফলে সব normal ভিডিও সার্চে (আসল ভিডিও
-    পাবলিক থাকলেও) "প্রাইভেট বা পাওয়া যায়নি" এরর আসছিল। RapidAPI নিজের
-    ক্রেডেনশিয়াল দিয়ে কল করে বলে datacenter IP থেকেও ব্লক হয় না, তাই
-    এখন preview + HD + Normal (SD) — সবকিছুর জন্যই একবারে RapidAPI-কেই
-    (cache-সহ) সরাসরি ডাকা হয়, ভিডিও হোক বা ফটো।
+    প্রথমে yt-dlp দিয়ে প্রিভিউ আনার চেষ্টা করা হয় — এতে RapidAPI কোটা বাঁচে।
+    yt-dlp ব্যর্থ হলে তখনই RapidAPI ব্যবহার করা হয় (fallback)।
+
+    - Normal ভিডিও: yt-dlp দিয়ে thumbnail/title/author আনা হয়।
+    - ফটো পোস্ট: yt-dlp দিয়ে ছবিগুলো আনা হয়।
+    - HD লিংক: শুধু /hd/resolve-এ (HD বাটনে ক্লিক করলে) RapidAPI ডাকা হয়।
+    - Normal ডাউনলোড: yt-dlp দিয়েই করা হয়, RapidAPI লাগে না।
     """
-    api_result = _fetch_via_rapidapi_cached(video_url)
+    ytdlp_result = fetch_ytdlp_preview(video_url)
 
-    if not api_result.get('success') or api_result.get('is_photo'):
-        return api_result
+    if ytdlp_result.get('success'):
+        # yt-dlp সফল হয়েছে
 
-    # HD এবং Normal (SD) দুটো লিংকই RapidAPI থেকে এসেছে, দুটোই TikTok-এর
-    # নিজস্ব CDN হোস্ট — তাই দুটোই সরাসরি ব্যবহারকারীর ব্রাউজার থেকে
-    # ওপেন করা যায় (bandwidth-free), Render সার্ভারের মধ্য দিয়ে না গিয়ে।
-    hd_url = api_result.get('hd_url')
-    sd_url = api_result.get('sd_url')
-    return {
-        'success': True,
-        'is_photo': False,
-        'hd_available': bool(hd_url),
-        'hd_url': hd_url,
-        'sd_available': bool(sd_url),
-        'sd_url': sd_url,
-        'thumbnail': api_result.get('thumbnail'),
-        'title': api_result.get('title') or 'Untitled Video',
-        'author': api_result.get('author') or 'Unknown',
-        'duration': api_result.get('duration') or 0,
-    }
+        # ফটো স্লাইডশো
+        if ytdlp_result.get('is_photo'):
+            logging.info(f"yt-dlp photo slideshow detected: {video_url}")
+            return ytdlp_result
+
+        # Regular video — প্রিভিউ তথ্য পাওয়া গেছে
+        # sd_url দেওয়া হচ্ছে না — Normal ডাউনলোড /normal/resolve-এ yt-dlp দিয়ে হবে
+        logging.info(f"yt-dlp preview success: {video_url}")
+        return {
+            'success': True,
+            'is_photo': False,
+            'hd_available': True,
+            'sd_available': ytdlp_result.get('sd_available', False),
+            # sd_url intentionally omitted — frontend will call /normal/resolve
+            'thumbnail': ytdlp_result.get('thumbnail', ''),
+            'title': ytdlp_result.get('title', 'Untitled Video'),
+            'author': ytdlp_result.get('author', 'Unknown'),
+            'duration': ytdlp_result.get('duration', 0),
+        }
+
+    else:
+        # yt-dlp ব্যর্থ (TikTok ব্লক করেছে বা অন্য সমস্যা) — RapidAPI fallback
+        logging.warning(f"yt-dlp failed ({ytdlp_result.get('error')}), falling back to RapidAPI for: {video_url}")
+        api_result = _fetch_via_rapidapi_cached(video_url)
+
+        if not api_result.get('success') or api_result.get('is_photo'):
+            return api_result
+
+        # RapidAPI থেকে ভিডিও তথ্য পাওয়া গেছে
+        hd_url = api_result.get('hd_url')
+        sd_url = api_result.get('sd_url')
+        return {
+            'success': True,
+            'is_photo': False,
+            'hd_available': bool(hd_url),
+            'hd_url': hd_url,
+            'sd_available': bool(sd_url),
+            'sd_url': sd_url,
+            'thumbnail': api_result.get('thumbnail', ''),
+            'title': api_result.get('title', 'Untitled Video'),
+            'author': api_result.get('author', 'Unknown'),
+            'duration': api_result.get('duration', 0),
+        }
 
 
 def resolve_hd_link(video_url):
     """
     ব্যবহারকারী সত্যিই HD Download বাটনে ক্লিক করলে তখনই এটা ডাকা হয় —
-    এখানেই আসলে RapidAPI-কে কল করা হয় (cache-সহ), তাই যারা শুধু প্রিভিউ
-    দেখে ডাউনলোড করে না তাদের জন্য কোটা খরচ হয় না।
-    Returns dict: {'success': True, 'hd_url': ...} বা {'success': False, 'error': ...}
+    এখানেই আসলে RapidAPI-কে কল করা হয় (cache-সহ)।
+    যারা শুধু প্রিভিউ দেখে HD ডাউনলোড করে না, তাদের জন্য কোটা খরচ হয় না।
     """
     logging.info(f"HD_RESOLVE_CLICKED: {video_url}")
     api_result = _fetch_via_rapidapi_cached(video_url)
