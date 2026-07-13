@@ -2,28 +2,23 @@
 //  Tik2BD Pro — main.js
 // =============================================
 
-// ===== Onclick Popunder বিজ্ঞাপন (প্রতি session-এ একবার) =====
+// ===== Onclick Popunder বিজ্ঞাপন (session-এ একবার, setTimeout দিয়ে) =====
+// setTimeout(0) ব্যবহার: আগে <a> এর native navigation হয়, তারপর ad fire হয়
+// ফলে popup blocker HD/Normal button-এর navigation block করে না
 (function () {
     let _adFired = false;
     document.addEventListener('click', function () {
         if (!_adFired) {
             _adFired = true;
-            window.open('https://omg10.com/4/11269673', '_blank', 'noopener');
+            setTimeout(function () {
+                window.open('https://omg10.com/4/11269673', '_blank', 'noopener');
+            }, 0);
         }
     }, true);
 })();
 
-// ===== বর্তমান ভিডিওর CDN URL (নতুন ট্যাবে খোলার জন্য) =====
-let _videoUrls = { hd: '', normal: '' };
-
-function openVideoInTab(type) {
-    const url = _videoUrls[type];
-    if (url) {
-        window.open(url, '_blank', 'noopener,noreferrer');
-    } else {
-        showToast('ডাউনলোড লিংক পাওয়া যায়নি।', 'error');
-    }
-}
+// HD URL (RapidAPI CDN) — <a> tag-এ set করা হয় নতুন ট্যাব navigation-এর জন্য
+let _hdUrl = '';
 
 const urlInput    = document.getElementById('urlInput');
 const clearBtn    = document.getElementById('clearBtn');
@@ -250,33 +245,35 @@ async function startAdUnlockFlow(cfg) {
 
 // ===== Render Result =====
 function renderVideoResult(data) {
-    const safeTitle  = escapeHtml((data.title  || 'Untitled Video').substring(0, 80));
-    const safeAuthor = escapeHtml(data.author   || 'Unknown');
+    const safeTitle     = escapeHtml((data.title  || 'Untitled Video').substring(0, 80));
+    const safeAuthor    = escapeHtml(data.author  || 'Unknown');
     const safeThumbnail = escapeHtml(data.thumbnail || '');
 
-    // HD → RapidAPI CDN URL, সরাসরি নতুন ট্যাবে খোলা যায়
-    // Normal → TikTok session cookie দরকার, তাই server proxy দিয়ে stream
-    _videoUrls.hd = (data.hd_available && data.hd_url) ? data.hd_url : '';
-    const sdProxy  = (data.sd_available && data.video_url)
-        ? proxyNormalUrl(data.video_url, 'tiktok_normal.mp4') : '';
+    // HD URL store (RapidAPI CDN) — সরাসরি নতুন ট্যাবে খোলা যায়
+    _hdUrl = (data.hd_available && data.hd_url) ? data.hd_url : '';
+
+    // Normal → /watch page: ব্রাউজারে <video> player-এ play হবে, download নয়
+    const watchUrl = (data.sd_available && data.video_url)
+        ? '/watch?url=' + encodeURIComponent(data.video_url) : '';
 
     const thumbHtml = safeThumbnail
         ? `<img class="result-thumb" src="${safeThumbnail}" alt="Thumbnail" onerror="this.style.display='none'">`
         : '';
 
-    const hdBtn = _videoUrls.hd
-        ? `<button class="result-btn hd" onclick="openVideoInTab('hd')">
+    // HD: <a target="_blank"> — native navigation, popup blocker-এ block হয় না
+    const hdBtn = _hdUrl
+        ? `<a id="_hdLink" href="#" class="result-btn hd" target="_blank" rel="noopener noreferrer">
                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                HD Download
-           </button>`
+           </a>`
         : `<span class="result-btn sd" style="opacity:0.4;cursor:default;">${data.hd_locked ? 'HD Locked' : 'HD Unavailable'}</span>`;
 
     const hdRemainingBadge = renderHdRemainingBadge(data.hd_limit);
 
-    // Normal: proxy URL নতুন ট্যাবে খোলা — server stream করে কিন্তু
-    // user নিজে Save করে, ফলে একটাই connection (double download নেই)
-    const sdBtn = sdProxy
-        ? `<a href="${escapeHtml(sdProxy)}" class="result-btn sd" target="_blank" rel="noopener">
+    // Normal: /watch page → নতুন ট্যাবে ব্রাউজার video player-এ play হবে
+    // Long-press → Save করলে একবারই download হবে → bandwidth সাশ্রয়
+    const sdBtn = watchUrl
+        ? `<a href="${escapeHtml(watchUrl)}" class="result-btn sd" target="_blank" rel="noopener noreferrer">
                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                Normal Download
            </a>`
@@ -300,8 +297,14 @@ function renderVideoResult(data) {
             ${hdRemainingBadge}
             ${hdLockHtml}
         </div>`;
-    showToast('Video found! Choose your quality.', 'success');
 
+    // HD link-এর href প্রোগ্রামেটিক্যালি সেট — XSS-safe
+    if (_hdUrl) {
+        const hdLink = document.getElementById('_hdLink');
+        if (hdLink) hdLink.href = _hdUrl;
+    }
+
+    showToast('Video found! Choose your quality.', 'success');
     if (data.hd_locked) initHdUnlockArea();
 }
 

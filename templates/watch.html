@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Tik2BD — Video Player</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    background: #000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+}
+video {
+    width: 100%;
+    max-width: 480px;
+    max-height: 90vh;
+    background: #111;
+    border-radius: 8px;
+}
+.hint {
+    color: #666;
+    font-size: 13px;
+    margin-top: 14px;
+    text-align: center;
+    padding: 0 16px;
+}
+.hint span { color: #aaa; }
+.brand {
+    color: #333;
+    font-size: 12px;
+    margin-top: 8px;
+}
+</style>
+</head>
+<body>
+<video
+    src="{{ proxy_url }}"
+    controls
+    autoplay
+    playsinline
+    preload="auto"
+></video>
+<p class="hint">
+    ভিডিওটি দীর্ঘক্ষণ চেপে ধরুন → <span>Save Video</span> করুন
+</p>
+<p class="brand">Tik2BD Pro</p>
+</body>
+</html>

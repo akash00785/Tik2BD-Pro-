@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context, g
 import os
 import secrets
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote
 import requests as req_lib
 from services.api_handler import fetch_tiktok_data
 from services.ytdlp_handler import stream_ytdlp_video
@@ -208,6 +208,16 @@ def proxy_download():
     except req_lib.RequestException as e:
         logger.error(f"Proxy error: {str(e)}")
         return jsonify({'error': 'Could not fetch video. Please try again.'}), 502
+
+
+@app.route('/watch')
+def watch():
+    """Normal ভিডিও player page — ব্রাউজারে inline play, download নয়।"""
+    video_url = request.args.get('url', '').strip()
+    if not video_url or not is_valid_tiktok_url(video_url):
+        return "Invalid TikTok URL.", 400
+    proxy_url = f"/proxy-download-normal?url={quote(video_url, safe='')}&filename=tiktok.mp4"
+    return render_template('watch.html', proxy_url=proxy_url)
 
 
 @app.route('/proxy-download-normal')
