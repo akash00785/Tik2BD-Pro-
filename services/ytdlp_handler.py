@@ -133,47 +133,46 @@ def fetch_ytdlp_preview(video_url):
 
 def stream_ytdlp_video(video_url):
     """
-    Normal/SD ভিডিওটা yt-dlp-এর নিজের opener (ydl.urlopen) দিয়ে CDN থেকে
-    স্ট্রিম করা হয় — TikTok CDN শুধু headers দিয়ে রাজি হয় না, extraction
-    session-এর cookie (msToken/ttwid) লাগে।
+    Normal ভিডিও — yt-dlp দিয়ে CDN URL extract করে, তারপর
+    Python requests দিয়ে stream করা হয়।
+    ydl.urlopen() এর বদলে requests ব্যবহার — বেশি reliable।
 
-    Returns: (ydl, cdn_response) or None
+    Returns: (requests.Response, cdn_url) or None
     """
+    import requests as _req
+
     ydl = yt_dlp.YoutubeDL(_YDL_OPTS)
     try:
         info = ydl.extract_info(video_url, download=False)
     except Exception as e:
         logging.error(f"stream_ytdlp_video extract error: {e}")
-        ydl.close()
         return None
+    finally:
+        ydl.close()
 
     if not info:
-        ydl.close()
         return None
 
     av = _av_formats(info)
 
     if av:
-        # HD quality: সবচেয়ে ভালো available format বেছে নেওয়া হয়
         obj = av[0]
     elif info.get('url'):
         obj = info
     else:
-        ydl.close()
         return None
 
-    url = obj.get('url')
-    if not url:
-        ydl.close()
+    cdn_url = obj.get('url')
+    if not cdn_url:
         return None
 
+    # yt-dlp এর extracted headers + default headers merge করা
     headers = _headers_for(obj, info)
-    try:
-        req = yt_dlp.utils.sanitized_Request(url, headers=headers)
-        cdn_resp = ydl.urlopen(req)
-    except Exception as e:
-        logging.error(f"stream_ytdlp_video urlopen error: {e}")
-        ydl.close()
-        return None
 
-    return ydl, cdn_resp
+    try:
+        resp = _req.get(cdn_url, headers=headers, stream=True, timeout=60)
+        resp.raise_for_status()
+        return resp, cdn_url
+    except Exception as e:
+        logging.error(f"stream_ytdlp_video requests error: {e}")
+        return None

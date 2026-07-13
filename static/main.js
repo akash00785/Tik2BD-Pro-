@@ -301,7 +301,25 @@ function renderVideoResult(data) {
     // HD link-এর href প্রোগ্রামেটিক্যালি সেট — XSS-safe
     if (_hdUrl) {
         const hdLink = document.getElementById('_hdLink');
-        if (hdLink) hdLink.href = _hdUrl;
+        if (hdLink) {
+            hdLink.href = _hdUrl;
+            // Click হলে background-এ /hd/consume call → limit কমবে
+            // CDN URL সরাসরি খোলে, server bandwidth নেই
+            hdLink.addEventListener('click', function () {
+                fetch('/hd/consume', { method: 'POST' })
+                    .then(r => r.json())
+                    .then(res => {
+                        if (res.hd_limit) {
+                            // badge update করা
+                            const badge = document.querySelector('.hd-remaining-badge');
+                            if (badge && !res.hd_limit.locked) {
+                                badge.textContent = `HD বাকি আছে: ${res.hd_limit.remaining_free}/${res.hd_limit.limit}`;
+                            }
+                        }
+                    })
+                    .catch(() => { /* নেটওয়ার্ক সমস্যা হলে চুপচাপ ignore */ });
+            }, { once: true }); // প্রতিটি ক্লিকে একবারই consume হবে
+        }
     }
 
     showToast('Video found! Choose your quality.', 'success');

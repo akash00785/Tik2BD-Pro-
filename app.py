@@ -220,14 +220,28 @@ def watch():
     return render_template('watch.html', proxy_url=proxy_url)
 
 
+@app.route('/hd/consume', methods=['POST'])
+def hd_consume():
+    """
+    HD বাটন ক্লিক হলে JS background-এ এই endpoint call করে।
+    CDN URL সরাসরি browser-এ খোলা হয় (server bandwidth নেই),
+    কিন্তু limit এখানে কমানো হয়।
+    """
+    allowed, status = hd_limiter.try_consume(_client_ip(), _get_or_create_device_id())
+    if not allowed:
+        return jsonify({'error': 'limit_reached', 'hd_limit': status}), 429
+    return jsonify({'ok': True, 'hd_limit': status})
+
+
 @app.route('/proxy-download-normal')
 def proxy_download_normal():
     """
-    Normal বাটন — yt-dlp দিয়ে HD quality TikTok ভিডিও স্ট্রিম।
-    RapidAPI key লাগে না। ব্রাউজারে inline play হয় (নতুন ট্যাবে)।
+    Normal বাটন — yt-dlp দিয়ে TikTok CDN URL extract করে
+    Python requests দিয়ে stream করা হয়।
+    RapidAPI key লাগে না।
     """
     video_url = request.args.get('url', '').strip()
-    filename = request.args.get('filename', 'tiktok_hd.mp4')
+    filename = request.args.get('filename', 'tiktok.mp4')
 
     if not video_url or not is_valid_tiktok_url(video_url):
         return jsonify({'error': 'Invalid request'}), 400
@@ -241,37 +255,29 @@ def proxy_download_normal():
     if not result:
         return jsonify({'error': 'Could not fetch video. Please try again.'}), 502
 
-    ydl, cdn_resp = result
+    cdn_resp, _ = result  # (requests.Response, cdn_url)
 
-    resp_info = getattr(cdn_resp, 'headers', {}) or {}
-    content_type = resp_info.get('Content-Type') or 'video/mp4'
-    content_length = resp_info.get('Content-Length')
+    content_type = cdn_resp.headers.get('Content-Type') or 'video/mp4'
+    content_length = cdn_resp.headers.get('Content-Length')
 
-    # inline → ব্রাউজার নতুন ট্যাবে video player-এ play করবে
-    # user নিজে save করবে — double download হবে না, bandwidth সাশ্রয়
     response_headers = {
         'Content-Disposition': f'inline; filename="{filename}"',
         'Content-Type': 'video/mp4',
         'Accept-Ranges': 'none',
+        'Cache-Control': 'no-cache',
     }
     if content_length:
         response_headers['Content-Length'] = content_length
 
     def generate():
         try:
-            while True:
-                chunk = cdn_resp.read(65536)
-                if not chunk:
-                    break
-                yield chunk
+            for chunk in cdn_resp.iter_content(chunk_size=65536):
+                if chunk:
+                    yield chunk
         except Exception as e:
             logger.error(f"yt-dlp proxy stream interrupted: {str(e)}")
         finally:
-            try:
-                cdn_resp.close()
-            except Exception:
-                pass
-            ydl.close()
+            cdn_resp.close()
 
     return Response(
         stream_with_context(generate()),
