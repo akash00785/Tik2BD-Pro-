@@ -254,10 +254,11 @@ function renderVideoResult(data) {
     const safeAuthor = escapeHtml(data.author   || 'Unknown');
     const safeThumbnail = escapeHtml(data.thumbnail || '');
 
-    // CDN URL সরাসরি module variable-এ রাখা — নতুন ট্যাবে খোলা হবে
-    // (server proxy ছাড়া, ব্যান্ডউইথ বাঁচানো)
-    _videoUrls.hd     = (data.hd_available && data.hd_url)    ? data.hd_url    : '';
-    _videoUrls.normal = (data.sd_available && data.video_url)  ? data.video_url : '';
+    // HD → RapidAPI CDN URL, সরাসরি নতুন ট্যাবে খোলা যায়
+    // Normal → TikTok session cookie দরকার, তাই server proxy দিয়ে stream
+    _videoUrls.hd = (data.hd_available && data.hd_url) ? data.hd_url : '';
+    const sdProxy  = (data.sd_available && data.video_url)
+        ? proxyNormalUrl(data.video_url, 'tiktok_normal.mp4') : '';
 
     const thumbHtml = safeThumbnail
         ? `<img class="result-thumb" src="${safeThumbnail}" alt="Thumbnail" onerror="this.style.display='none'">`
@@ -272,11 +273,13 @@ function renderVideoResult(data) {
 
     const hdRemainingBadge = renderHdRemainingBadge(data.hd_limit);
 
-    const sdBtn = _videoUrls.normal
-        ? `<button class="result-btn sd" onclick="openVideoInTab('normal')">
+    // Normal: proxy URL নতুন ট্যাবে খোলা — server stream করে কিন্তু
+    // user নিজে Save করে, ফলে একটাই connection (double download নেই)
+    const sdBtn = sdProxy
+        ? `<a href="${escapeHtml(sdProxy)}" class="result-btn sd" target="_blank" rel="noopener">
                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                Normal Download
-           </button>`
+           </a>`
         : '';
 
     const hdLockHtml = renderHdLockBlock(data.hd_limit);

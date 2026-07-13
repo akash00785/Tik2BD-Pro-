@@ -127,7 +127,10 @@ def fetch_tiktok_data(video_url):
         'hd_available': hd_available,
         'hd_url': api_result.get('hd_url') if hd_available else None,
         'sd_available': sd_available,
-        'video_url': ytdlp_result.get('sd_url') if sd_available else None,
+        # TikTok CDN URL সরাসরি browser-এ কাজ করে না (msToken/ttwid cookie দরকার)
+        # তাই original TikTok URL রাখা হয় — proxy-download-normal route yt-dlp
+        # session দিয়ে সঠিক headers + cookies সহ CDN থেকে stream করে।
+        'video_url': video_url if sd_available else None,
         'thumbnail': source.get('thumbnail'),
         'title': source.get('title') or 'Untitled Video',
         'author': source.get('author') or 'Unknown',
