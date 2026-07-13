@@ -154,8 +154,8 @@ def stream_ytdlp_video(video_url):
     av = _av_formats(info)
 
     if av:
-        # Normal/SD quality: সবচেয়ে ছোট available format বেছে নেওয়া হয়
-        obj = av[-1] if len(av) > 1 else av[0]
+        # HD quality: সবচেয়ে ভালো available format বেছে নেওয়া হয়
+        obj = av[0]
     elif info.get('url'):
         obj = info
     else:

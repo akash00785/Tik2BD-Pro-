@@ -213,11 +213,11 @@ def proxy_download():
 @app.route('/proxy-download-normal')
 def proxy_download_normal():
     """
-    Normal (SD) ডাউনলোড — yt-dlp দিয়ে সরাসরি TikTok থেকে স্ট্রিম।
-    RapidAPI key লাগে না।
+    Normal বাটন — yt-dlp দিয়ে HD quality TikTok ভিডিও স্ট্রিম।
+    RapidAPI key লাগে না। ব্রাউজারে inline play হয় (নতুন ট্যাবে)।
     """
     video_url = request.args.get('url', '').strip()
-    filename = request.args.get('filename', 'tiktok_normal.mp4')
+    filename = request.args.get('filename', 'tiktok_hd.mp4')
 
     if not video_url or not is_valid_tiktok_url(video_url):
         return jsonify({'error': 'Invalid request'}), 400
@@ -237,9 +237,12 @@ def proxy_download_normal():
     content_type = resp_info.get('Content-Type') or 'video/mp4'
     content_length = resp_info.get('Content-Length')
 
+    # inline → ব্রাউজার নতুন ট্যাবে video player-এ play করবে
+    # user নিজে save করবে — double download হবে না, bandwidth সাশ্রয়
     response_headers = {
-        'Content-Disposition': f'attachment; filename="{filename}"',
-        'Content-Type': content_type,
+        'Content-Disposition': f'inline; filename="{filename}"',
+        'Content-Type': 'video/mp4',
+        'Accept-Ranges': 'none',
     }
     if content_length:
         response_headers['Content-Length'] = content_length
