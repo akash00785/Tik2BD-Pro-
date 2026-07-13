@@ -17,55 +17,14 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-// ===== Normal (SD) — সরাসরি CDN URL দিয়ে নতুন ট্যাবে খোলা =====
-function openNormalDownload(sdUrl, btn) {
-    if (btn) {
-        btn.disabled = true;
-        btn.textContent = 'খোলা হয়েছে!';
-    }
-    window.open(sdUrl, '_blank', 'noopener,noreferrer');
-    showToast('ভিডিও নতুন ট্যাবে খুলেছে — উপরের ৩-ডট মেনু থেকে "Save video" করুন।', 'info', 5000);
-    setTimeout(() => {
-        if (btn) {
-            btn.disabled = false;
-            btn.textContent = 'Normal Download';
-        }
-    }, 3000);
+// ===== Proxy URL (cross-origin download fix) =====
+function proxyUrl(cdnUrl, filename) {
+    return `/proxy-download?url=${encodeURIComponent(cdnUrl)}&filename=${encodeURIComponent(filename)}`;
 }
 
-// ===== Normal (SD) — yt-dlp resolve করে তারপর খোলা =====
-// sd_url আগে থেকে না থাকলে (yt-dlp preview case) এই ফাংশন ডাকা হয়।
-async function resolveAndDownloadNormal(sourceUrl, btn) {
-    if (btn) {
-        btn.disabled = true;
-        btn.textContent = 'খোঁজা হচ্ছে...';
-    }
-    try {
-        const res = await fetch('/normal/resolve', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: sourceUrl }),
-        });
-        const result = await res.json();
-
-        if (!result.success) {
-            showToast(result.error || 'Normal ডাউনলোড লিংক পাওয়া যায়নি।', 'error');
-            if (btn) { btn.disabled = false; btn.textContent = 'Normal Download'; }
-            return;
-        }
-
-        // CDN URL নতুন ট্যাবে খোলা হয় — ব্যবহারকারী ৩-ডট মেনু থেকে সেভ করবেন
-        window.open(result.normal_url, '_blank', 'noopener,noreferrer');
-        showToast('ভিডিও নতুন ট্যাবে খুলেছে — উপরের ৩-ডট মেনু থেকে "Save video" করুন।', 'info', 5000);
-
-        if (btn) {
-            btn.textContent = 'খোলা হয়েছে!';
-            setTimeout(() => { btn.disabled = false; btn.textContent = 'Normal Download'; }, 3000);
-        }
-    } catch {
-        showToast('Network error. Please try again.', 'error');
-        if (btn) { btn.disabled = false; btn.textContent = 'Normal Download'; }
-    }
+// ===== Normal (yt-dlp powered) download proxy — API key exhaustion-proof =====
+function proxyNormalUrl(videoUrl, filename) {
+    return `/proxy-download-normal?url=${encodeURIComponent(videoUrl)}&filename=${encodeURIComponent(filename)}`;
 }
 
 // ===== Toast Notification System =====
@@ -113,6 +72,7 @@ function startCounters() {
     });
 }
 
+// Run counters when hero stats come into view
 const observer = new IntersectionObserver(entries => {
     entries.forEach(e => { if (e.isIntersecting) { startCounters(); observer.disconnect(); } });
 }, { threshold: 0.3 });
@@ -169,6 +129,8 @@ function setLoading(loading) {
 
 // ===== HD daily-limit UI =====
 function renderHdRemainingBadge(hdLimit) {
+    // লক না হওয়া অবস্থায় সবসময় "কতটা বাকি" দেখানো হয়, যাতে ব্যবহারকারী
+    // বুঝতে পারে একটার পর একটা ডাউনলোড করলে লিমিট কমছে।
     if (!hdLimit || hdLimit.locked) return '';
     return `<span class="hd-remaining-badge">HD বাকি আছে: ${hdLimit.remaining_free}/${hdLimit.limit}</span>`;
 }
@@ -264,33 +226,33 @@ async function startAdUnlockFlow(cfg) {
 }
 
 // ===== Render Result =====
-function renderVideoResult(data, sourceUrl) {
+function renderVideoResult(data) {
     const safeTitle  = escapeHtml((data.title  || 'Untitled Video').substring(0, 80));
     const safeAuthor = escapeHtml(data.author   || 'Unknown');
     const safeThumbnail = escapeHtml(data.thumbnail || '');
-
-    // sd_url আগে থেকে আছে (RapidAPI fallback) নাকি resolve করতে হবে (yt-dlp case)
-    const normalEnabled = Boolean(data.sd_available);
-    const hasSdUrlDirect = Boolean(data.sd_url);
+    // HD → RapidAPI (proxy server, forced download). Normal → yt-dlp (proxy
+    // server, independent of API key — keeps working even if HD key expires).
+    const hdProxy = data.hd_available && data.hd_url ? proxyUrl(data.hd_url, 'tiktok_hd.mp4') : '';
+    const sdProxy = data.sd_available && data.video_url ? proxyNormalUrl(data.video_url, 'tiktok_normal.mp4') : '';
 
     const thumbHtml = safeThumbnail
         ? `<img class="result-thumb" src="${safeThumbnail}" alt="Thumbnail" onerror="this.style.display='none'">`
         : '';
 
-    const hdBtn = data.hd_available
-        ? `<button type="button" class="result-btn hd" id="hdResolveBtn">
+    const hdBtn = hdProxy
+        ? `<a href="${escapeHtml(hdProxy)}" class="result-btn hd" download="tiktok_hd.mp4">
                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                HD Download
-           </button>`
+           </a>`
         : `<span class="result-btn sd" style="opacity:0.4;cursor:default;">${data.hd_locked ? 'HD Locked' : 'HD Unavailable'}</span>`;
 
     const hdRemainingBadge = renderHdRemainingBadge(data.hd_limit);
 
-    const sdBtn = normalEnabled
-        ? `<button type="button" class="result-btn sd" id="normalResolveBtn">
+    const sdBtn = sdProxy
+        ? `<a href="${escapeHtml(sdProxy)}" class="result-btn sd" download="tiktok_normal.mp4">
                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                Normal Download
-           </button>`
+           </a>`
         : '';
 
     const hdLockHtml = renderHdLockBlock(data.hd_limit);
@@ -313,98 +275,7 @@ function renderVideoResult(data, sourceUrl) {
         </div>`;
     showToast('Video found! Choose your quality.', 'success');
 
-    if (data.hd_available) {
-        document.getElementById('hdResolveBtn')?.addEventListener('click', () => resolveAndDownloadHd(sourceUrl));
-    }
-    if (normalEnabled) {
-        const normalBtn = document.getElementById('normalResolveBtn');
-        if (hasSdUrlDirect) {
-            // RapidAPI fallback — sd_url সরাসরি আছে
-            normalBtn?.addEventListener('click', () => openNormalDownload(data.sd_url, normalBtn));
-        } else {
-            // yt-dlp preview — /normal/resolve দিয়ে আনতে হবে
-            normalBtn?.addEventListener('click', () => resolveAndDownloadNormal(sourceUrl, normalBtn));
-        }
-    }
     if (data.hd_locked) initHdUnlockArea();
-}
-
-// ===== Resolve HD link only when the user actually clicks HD Download =====
-// এটাই RapidAPI-কে ডাকার একমাত্র জায়গা।
-let hdDownloadBusy = false;
-
-async function resolveAndDownloadHd(sourceUrl) {
-    if (hdDownloadBusy) {
-        showToast('একটা HD ডাউনলোড ইতিমধ্যে চলছে — অপেক্ষা করো।', 'info', 2000);
-        return;
-    }
-    hdDownloadBusy = true;
-
-    const btn = document.getElementById('hdResolveBtn');
-    if (btn) {
-        btn.disabled = true;
-        btn.textContent = 'খোঁজা হচ্ছে...';
-    }
-    try {
-        const res = await fetch('/hd/resolve', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: sourceUrl }),
-        });
-        const result = await res.json();
-
-        if (!result.success) {
-            hdDownloadBusy = false;
-            if (result.error === 'locked') {
-                showToast('আজকের ফ্রি HD লিমিট শেষ।', 'error');
-                if (btn) {
-                    const wrap = document.createElement('span');
-                    wrap.innerHTML = renderHdLockBlock(result.hd_limit);
-                    btn.replaceWith(...wrap.children);
-                    initHdUnlockArea();
-                }
-            } else {
-                showToast(result.error || 'HD লিংক পাওয়া যায়নি।', 'error');
-                if (btn) {
-                    btn.disabled = false;
-                    btn.textContent = 'HD Download';
-                }
-            }
-            return;
-        }
-
-        // সরাসরি TikTok CDN-এ নতুন ট্যাবে খোলা হয়
-        window.open(result.hd_url, '_blank', 'noopener,noreferrer');
-        showToast('ভিডিও নতুন ট্যাবে খুলেছে — উপরের ৩-ডট মেনু থেকে "Save video" করুন।', 'info', 5000);
-
-        if (btn) {
-            btn.textContent = 'খোলা হয়েছে!';
-        }
-        if (result.hd_limit) {
-            const badge = document.querySelector('.hd-remaining-badge');
-            if (badge) badge.outerHTML = renderHdRemainingBadge(result.hd_limit);
-        }
-
-        setTimeout(() => {
-            hdDownloadBusy = false;
-            if (btn) {
-                btn.disabled = false;
-                btn.textContent = 'HD Download';
-            }
-        }, 4000);
-    } catch {
-        hdDownloadBusy = false;
-        showToast('Network error. Please try again.', 'error');
-        if (btn) {
-            btn.disabled = false;
-            btn.textContent = 'HD Download';
-        }
-    }
-}
-
-// ===== Photo Download — /proxy-download দিয়ে সরাসরি ডাউনলোড =====
-function proxyUrl(cdnUrl, filename) {
-    return `/proxy-download?url=${encodeURIComponent(cdnUrl)}&filename=${encodeURIComponent(filename)}`;
 }
 
 function renderPhotoResult(data) {
@@ -464,7 +335,7 @@ async function processDownload() {
         const data = await response.json();
 
         if (data.success) {
-            data.is_photo ? renderPhotoResult(data) : renderVideoResult(data, url);
+            data.is_photo ? renderPhotoResult(data) : renderVideoResult(data);
         } else {
             renderError(data.error || 'Something went wrong. Please try again.');
         }
@@ -488,7 +359,7 @@ function toggleFaq(btn) {
     if (!isOpen) item.classList.add('open');
 }
 
-// ===== Smooth Scroll =====
+// ===== Smooth Scroll for nav links =====
 document.querySelectorAll('a[href^="#"]').forEach(a => {
     a.addEventListener('click', e => {
         const target = document.querySelector(a.getAttribute('href'));
