@@ -1,7 +1,6 @@
 import requests
 import logging
 from config import key_manager, TIMEOUT
-from services.ytdlp_handler import fetch_ytdlp_preview
 from services import rapidapi_cache
 
 
@@ -112,76 +111,38 @@ def _fetch_via_rapidapi(video_url):
     return {'success': False, 'error': 'System busy, please try again.'}
 
 
-def _looks_like_photo_url(video_url):
-    """টিকটকের ফটো/স্লাইডশো পোস্টের URL-এ '/photo/' থাকে (ভিডিওতে '/video/')।
-    এটা RapidAPI না ডেকেই মোটামুটি নিশ্চিতভাবে বলে দেয় ফটো পোস্ট কিনা —
-    শুধু vm/vt.tiktok.com শর্ট লিংকে এটা বলা যায় না, ওগুলো RapidAPI দিয়েই
-    resolve করতে হয় (পুরনো ব্যবহার, বিরল কেস)।"""
-    return '/photo/' in (video_url or '').lower()
-
-
 def fetch_tiktok_data(video_url):
     """
-    HD ডাউনলোড RapidAPI key দিয়ে আসে, Normal ডাউনলোড yt-dlp দিয়ে —
-    এই দুইটা এখন একে অপরের থেকে স্বাধীন। ফলে RapidAPI-এর সব key মেয়াদ
-    ফুরিয়ে গেলে বা exhausted হয়ে গেলেও Normal Download কাজ করবে,
-    শুধু HD Download সেই সময়ের জন্য অনুপলব্ধ থাকবে।
-
-    RapidAPI কোটা বাঁচানোর জন্য: সাধারণ ভিডিও লিংকে এই ধাপে RapidAPI-কে
-    ডাকা হয় না — শুধু yt-dlp দিয়ে প্রিভিউ আনা হয়, HD লিংক আসলে "resolve"
-    হয় যখন ব্যবহারকারী সত্যিই HD Download বাটনে ক্লিক করে (দেখুন
-    resolve_hd_link, যেটা /hd/resolve endpoint থেকে ডাকা হয়)। এতে যারা
-    শুধু প্রিভিউ দেখে কিন্তু ডাউনলোড করে না, তাদের জন্য কোটা খরচ হয় না।
-    ফটো/স্লাইডশো পোস্টের জন্য RapidAPI এখনো এই ধাপেই লাগে, কারণ ছবিগুলোর
-    লিংক ছাড়া প্রিভিউই দেখানো যায় না।
+    আগে normal ভিডিওর প্রিভিউ RapidAPI কোটা বাঁচাতে yt-dlp দিয়ে আনা হতো
+    (RapidAPI শুধু HD বাটনে ক্লিক করলে ডাকা হতো)। কিন্তু TikTok এখন
+    Render-এর মতো ডেটাসেন্টার/ক্লাউড IP থেকে yt-dlp-এর ওয়েবপেজ-info
+    রিকোয়েস্টও ব্লক করে দিচ্ছে — ফলে সব normal ভিডিও সার্চে (আসল ভিডিও
+    পাবলিক থাকলেও) "প্রাইভেট বা পাওয়া যায়নি" এরর আসছিল। RapidAPI নিজের
+    ক্রেডেনশিয়াল দিয়ে কল করে বলে datacenter IP থেকেও ব্লক হয় না, তাই
+    এখন preview + HD + Normal (SD) — সবকিছুর জন্যই একবারে RapidAPI-কেই
+    (cache-সহ) সরাসরি ডাকা হয়, ভিডিও হোক বা ফটো।
     """
-    if _looks_like_photo_url(video_url):
-        api_result = _fetch_via_rapidapi_cached(video_url)
-        if api_result.get('success') and api_result.get('is_photo'):
-            return api_result
-        # '/photo/' থাকলেও RapidAPI যদি ছবি না দিয়ে ভিডিও/এরর দেয়, নিচের
-        # সাধারণ ভিডিও ফ্লো-তে পড়ে যাবে (video_url আবার resolve হবে না,
-        # ytdlp_result দিয়েই চলবে)।
-        if not api_result.get('success'):
-            ytdlp_result = fetch_ytdlp_preview(video_url)
-            if not ytdlp_result.get('success'):
-                return api_result if api_result.get('error') else ytdlp_result
-            return _build_lazy_hd_result(video_url, ytdlp_result)
+    api_result = _fetch_via_rapidapi_cached(video_url)
 
-    logging.info(f"PREVIEW_NO_RAPIDAPI (yt-dlp only, no quota used): {video_url}")
-    ytdlp_result = fetch_ytdlp_preview(video_url)
+    if not api_result.get('success') or api_result.get('is_photo'):
+        return api_result
 
-    if not ytdlp_result.get('success'):
-        return ytdlp_result
-
-    return _build_lazy_hd_result(video_url, ytdlp_result)
-
-
-def _build_lazy_hd_result(video_url, ytdlp_result):
-    """RapidAPI-কে না ডেকে, আশাবাদীভাবে (optimistic) HD বাটন দেখানোর জন্য
-    রেজাল্ট বানায়। আসল HD লিংক ও তার সত্যিকারের availability বের হবে
-    resolve_hd_link() কল করার সময় (ব্যবহারকারী HD বাটনে ক্লিক করলে)।"""
-    sd_available = bool(ytdlp_result.get('sd_available'))
-
-    if not sd_available:
-        # yt-dlp SD দিতে না পারলেও HD থাকতে পারে (RapidAPI বাদে yt-dlp
-        # ব্যর্থ হতে পারে) — তাই এখানেই পুরোপুরি ফেইল না ঘোষণা করে HD-এর
-        # সুযোগও খোলা রাখা হচ্ছে, resolve করার সময় বোঝা যাবে সত্যিই কিছু
-        # পাওয়া যায় কিনা।
-        pass
-
+    # HD এবং Normal (SD) দুটো লিংকই RapidAPI থেকে এসেছে, দুটোই TikTok-এর
+    # নিজস্ব CDN হোস্ট — তাই দুটোই সরাসরি ব্যবহারকারীর ব্রাউজার থেকে
+    # ওপেন করা যায় (bandwidth-free), Render সার্ভারের মধ্য দিয়ে না গিয়ে।
+    hd_url = api_result.get('hd_url')
+    sd_url = api_result.get('sd_url')
     return {
         'success': True,
         'is_photo': False,
-        'hd_available': True,
-        'hd_pending': True,   # ফ্রন্টএন্ডকে বলে: আসল HD লিংক এখনো resolve হয়নি
-        'hd_url': None,
-        'sd_available': sd_available,
-        'video_url': video_url if sd_available else None,
-        'thumbnail': ytdlp_result.get('thumbnail'),
-        'title': ytdlp_result.get('title') or 'Untitled Video',
-        'author': ytdlp_result.get('author') or 'Unknown',
-        'duration': ytdlp_result.get('duration') or 0,
+        'hd_available': bool(hd_url),
+        'hd_url': hd_url,
+        'sd_available': bool(sd_url),
+        'sd_url': sd_url,
+        'thumbnail': api_result.get('thumbnail'),
+        'title': api_result.get('title') or 'Untitled Video',
+        'author': api_result.get('author') or 'Unknown',
+        'duration': api_result.get('duration') or 0,
     }
 
 

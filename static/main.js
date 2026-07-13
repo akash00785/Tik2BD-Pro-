@@ -17,38 +17,23 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-// ===== Normal (yt-dlp powered) — সার্ভার proxy দিয়ে সরাসরি ডাউনলোড =====
-// /proxy-download-normal ব্যবহার করা হচ্ছে কারণ TikTok CDN-এ সরাসরি
-// browser request করলে 403 দেয় — yt-dlp extraction session-এর cookie
-// (msToken/ttwid) ছাড়া CDN রাজি হয় না। তাই সার্ভারের মধ্য দিয়েই আনা হয়।
-async function resolveAndOpenNormal(sourceUrl, btn) {
+// ===== Normal (SD) — RapidAPI থেকে পাওয়া CDN লিংক সরাসরি নতুন ট্যাবে
+// খোলা হয়, ঠিক HD-এর মতোই — Render সার্ভারের মধ্য দিয়ে ফাইলটা যায় না,
+// তাই bandwidth কাটে না। ব্যবহারকারীকে ৩-ডট মেনু থেকে ম্যানুয়ালি
+// "Save video" করতে হয় (cross-origin URL-এ <a download> কাজ করে না)।
+function openNormalDownload(sdUrl, btn) {
     if (btn) {
         btn.disabled = true;
-        btn.dataset.originalText = btn.textContent;
-        btn.textContent = 'ডাউনলোড হচ্ছে...';
+        btn.textContent = 'খোলা হয়েছে!';
     }
-    try {
-        const filename = 'tiktok_normal.mp4';
-        const proxyNormalUrl = `/proxy-download-normal?url=${encodeURIComponent(sourceUrl)}&filename=${encodeURIComponent(filename)}`;
-
-        const downloadLink = document.createElement('a');
-        downloadLink.href = proxyNormalUrl;
-        downloadLink.download = filename;
-        document.body.appendChild(downloadLink);
-        downloadLink.click();
-        downloadLink.remove();
-
-        showToast('ডাউনলোড শুরু হয়েছে!', 'success', 3000);
-    } catch {
-        showToast('Network error. Please try again.', 'error');
-    } finally {
-        setTimeout(() => {
-            if (btn) {
-                btn.disabled = false;
-                btn.textContent = btn.dataset.originalText || 'Normal Download';
-            }
-        }, 3000);
-    }
+    window.open(sdUrl, '_blank', 'noopener,noreferrer');
+    showToast('ভিডিও নতুন ট্যাবে খুলেছে — উপরের ৩-ডট মেনু থেকে "Save video" করুন।', 'info', 5000);
+    setTimeout(() => {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Normal Download';
+        }
+    }, 3000);
 }
 
 // ===== Toast Notification System =====
@@ -254,10 +239,9 @@ function renderVideoResult(data, sourceUrl) {
     const safeTitle  = escapeHtml((data.title  || 'Untitled Video').substring(0, 80));
     const safeAuthor = escapeHtml(data.author   || 'Unknown');
     const safeThumbnail = escapeHtml(data.thumbnail || '');
-    // Normal → yt-dlp, সরাসরি CDN লিংক (bandwidth-free)। HD এখন এখানে
-    // resolve করা হয় না — RapidAPI কোটা বাঁচাতে বাটনে ক্লিক করার সময়ই
-    // /hd/resolve কল হয় (দেখুন resolveAndDownloadHd)।
-    const normalEnabled = Boolean(data.sd_available && data.video_url);
+    // Normal (SD) লিংক RapidAPI থেকে প্রিভিউর সময়ই চলে আসে, তাই বাটনে
+    // ক্লিক করলে সরাসরি ওপেন করা যায় — আলাদা resolve কলের দরকার নেই।
+    const normalEnabled = Boolean(data.sd_available && data.sd_url);
 
     const thumbHtml = safeThumbnail
         ? `<img class="result-thumb" src="${safeThumbnail}" alt="Thumbnail" onerror="this.style.display='none'">`
@@ -304,7 +288,7 @@ function renderVideoResult(data, sourceUrl) {
     }
     if (normalEnabled) {
         const normalBtn = document.getElementById('normalResolveBtn');
-        normalBtn?.addEventListener('click', () => resolveAndOpenNormal(sourceUrl, normalBtn));
+        normalBtn?.addEventListener('click', () => openNormalDownload(data.sd_url, normalBtn));
     }
     if (data.hd_locked) initHdUnlockArea();
 }
@@ -396,18 +380,24 @@ async function resolveAndDownloadHd(sourceUrl) {
     }
 }
 
+// ছবি ডাউনলোডে ব্যবহারকারী একটাই ক্লিকে ফাইল সেভ হয়ে যাক এটা চান (আগে যেমন
+// ছিল), তাই এখানে সরাসরি CDN ওপেনের বদলে ছোট /proxy-download রুট দিয়েই
+// আনা হয় — Content-Disposition: attachment হেডার বসানো যায় বলে ব্রাউজার
+// নিজে থেকেই ডাউনলোড শুরু করে, নতুন ট্যাব খুলতে হয় না। ছবি ভিডিওর চেয়ে
+// অনেক ছোট বলে এই সামান্য bandwidth খরচ গ্রহণযোগ্য (ব্যবহারকারীর সিদ্ধান্ত)।
+function proxyUrl(cdnUrl, filename) {
+    return `/proxy-download?url=${encodeURIComponent(cdnUrl)}&filename=${encodeURIComponent(filename)}`;
+}
+
 function renderPhotoResult(data) {
     const safeTitle  = escapeHtml(data.title  || 'TikTok Photos');
     const safeAuthor = escapeHtml(data.author || 'Unknown');
-    // ছবিগুলো আগে থেকেই <img src> দিয়ে সরাসরি TikTok CDN থেকে লোড হয়
-    // (কোনো প্রক্সি ছাড়াই) — তাই ডাউনলোড বাটনও এখন একই CDN URL সরাসরি
-    // নতুন ট্যাবে খোলে, সার্ভারের মধ্য দিয়ে না গিয়ে (bandwidth-free)।
     const photos = (data.images || []).map((img, i) => `
         <div class="photo-card">
             <div class="photo-preview">
                 <img src="${escapeHtml(img)}" alt="Photo ${i + 1}" loading="lazy" onerror="this.closest('.photo-preview').innerHTML='<div class=photo-broken>🖼️</div>'">
             </div>
-            <a href="${escapeHtml(img)}" class="photo-dl-btn" target="_blank" rel="noopener noreferrer">
+            <a href="${escapeHtml(proxyUrl(img, 'tiktok_photo_' + (i + 1) + '.jpg'))}" class="photo-dl-btn" download="tiktok_photo_${i + 1}.jpg">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 Download
             </a>
