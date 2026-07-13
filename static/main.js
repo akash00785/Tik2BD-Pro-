@@ -17,11 +17,6 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-// ===== Proxy URL (cross-origin download fix) =====
-function proxyUrl(cdnUrl, filename) {
-    return `/proxy-download?url=${encodeURIComponent(cdnUrl)}&filename=${encodeURIComponent(filename)}`;
-}
-
 // ===== Normal (yt-dlp powered) — সার্ভার proxy দিয়ে সরাসরি ডাউনলোড =====
 // /proxy-download-normal ব্যবহার করা হচ্ছে কারণ TikTok CDN-এ সরাসরি
 // browser request করলে 403 দেয় — yt-dlp extraction session-এর cookie
@@ -366,15 +361,16 @@ async function resolveAndDownloadHd(sourceUrl) {
             return;
         }
 
-        const downloadLink = document.createElement('a');
-        downloadLink.href = proxyUrl(result.hd_url, 'tiktok_hd.mp4');
-        downloadLink.download = 'tiktok_hd.mp4';
-        document.body.appendChild(downloadLink);
-        downloadLink.click();
-        downloadLink.remove();
+        // সরাসরি TikTok CDN-এ নতুন ট্যাবে খোলা হয় — আমাদের সার্ভারের মধ্য
+        // দিয়ে ফাইলটা আর যায় না, তাই Render-এর bandwidth কোটা থেকে কিছু
+        // কাটে না। ট্রেড-অফ: cross-origin URL-এ <a download> কাজ করে না,
+        // তাই ভিডিওটা নতুন ট্যাবে চলতে শুরু করবে — ব্যবহারকারীকে ৩-ডট
+        // মেনু থেকে "Save video" করতে হবে।
+        window.open(result.hd_url, '_blank', 'noopener,noreferrer');
+        showToast('ভিডিও নতুন ট্যাবে খুলেছে — উপরের ৩-ডট মেনু থেকে "Save video" করুন।', 'info', 5000);
 
         if (btn) {
-            btn.textContent = 'ডাউনলোড হচ্ছে...';
+            btn.textContent = 'খোলা হয়েছে!';
         }
         if (result.hd_limit) {
             const badge = document.querySelector('.hd-remaining-badge');
@@ -403,12 +399,15 @@ async function resolveAndDownloadHd(sourceUrl) {
 function renderPhotoResult(data) {
     const safeTitle  = escapeHtml(data.title  || 'TikTok Photos');
     const safeAuthor = escapeHtml(data.author || 'Unknown');
+    // ছবিগুলো আগে থেকেই <img src> দিয়ে সরাসরি TikTok CDN থেকে লোড হয়
+    // (কোনো প্রক্সি ছাড়াই) — তাই ডাউনলোড বাটনও এখন একই CDN URL সরাসরি
+    // নতুন ট্যাবে খোলে, সার্ভারের মধ্য দিয়ে না গিয়ে (bandwidth-free)।
     const photos = (data.images || []).map((img, i) => `
         <div class="photo-card">
             <div class="photo-preview">
                 <img src="${escapeHtml(img)}" alt="Photo ${i + 1}" loading="lazy" onerror="this.closest('.photo-preview').innerHTML='<div class=photo-broken>🖼️</div>'">
             </div>
-            <a href="${escapeHtml(proxyUrl(img, 'tiktok_photo_' + (i + 1) + '.jpg'))}" class="photo-dl-btn" download="tiktok_photo_${i + 1}.jpg">
+            <a href="${escapeHtml(img)}" class="photo-dl-btn" target="_blank" rel="noopener noreferrer">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 Download
             </a>

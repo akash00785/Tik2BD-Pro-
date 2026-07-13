@@ -151,6 +151,12 @@ def hd_resolve():
     কল হয় (cache-সহ)। ব্যবহারকারীর HD লিমিট আগেই শেষ হয়ে থাকলে RapidAPI-কে
     না ডেকেই লকড রেসপন্স দেওয়া হয়, যাতে অপ্রয়োজনীয় কোটা খরচ না হয়
     (আসল কনজিউম এখনো /proxy-download-এই হয়, এটা শুধু লিংক বের করে)।
+    এখন থেকে HD ভিডিওটা সার্ভারের মধ্য দিয়ে প্রক্সি না হয়ে সরাসরি ব্রাউজার
+    থেকে TikTok CDN-এ খোলা হয় (bandwidth বাঁচাতে) — তাই আসল ফাইল ডাউনলোডের
+    কোনো আলাদা server touchpoint আর নেই। তাই ফ্রি লিমিট "consume" করাও
+    এখানেই সরিয়ে আনা হয়েছে (আগে /proxy-download-এ হতো), কারণ এই
+    এন্ডপয়েন্টই এখন একমাত্র জায়গা যেখানে সত্যিকারের RapidAPI খরচ হয় এবং
+    ব্যবহারকারী hd_url পেয়ে যায়।
     """
     data = request.get_json(silent=True) or {}
     video_url = data.get('url', '').strip()
@@ -158,13 +164,18 @@ def hd_resolve():
     if not is_valid_tiktok_url(video_url):
         return jsonify({'success': False, 'error': 'Invalid TikTok URL provided.'}), 400
 
-    status = hd_limiter.get_status(_client_ip(), _get_or_create_device_id())
-    if status['locked']:
-        return jsonify({'success': False, 'error': 'locked', 'hd_limit': status}), 429
+    pre_status = hd_limiter.get_status(_client_ip(), _get_or_create_device_id())
+    if pre_status['locked']:
+        return jsonify({'success': False, 'error': 'locked', 'hd_limit': pre_status}), 429
 
     result = resolve_hd_link(video_url)
     if not result.get('success'):
         return jsonify(result), 400
+
+    allowed, status = hd_limiter.try_consume(_client_ip(), _get_or_create_device_id())
+    if not allowed:
+        logger.warning("HD download blocked: free limit + unlock grants exhausted (race at resolve time).")
+        return jsonify({'success': False, 'error': 'locked', 'hd_limit': status}), 429
 
     result['hd_limit'] = status
     return jsonify(result)
@@ -217,10 +228,14 @@ def ads_unlock_claim():
 @app.route('/proxy-download')
 def proxy_download():
     """
-    TikTok CDN URL প্রক্সি করে সরাসরি ডাউনলোড করানো।
-    কারণ: ব্রাউজার cross-origin URL-এ <a download> অ্যাট্রিবিউট কাজ করে না,
-    ভিডিও প্লে হয়ে যায়। এই endpoint সার্ভার থেকে ফাইল নামিয়ে
-    Content-Disposition: attachment হেডার দিয়ে পাঠায়।
+    TikTok CDN URL প্রক্সি করে সরাসরি ডাউনলোড করানো — এখন আর ফ্রন্টএন্ড
+    থেকে সাধারণভাবে ডাকা হয় না (HD/ফটো ডাউনলোড এখন সরাসরি ব্রাউজার থেকে
+    CDN-এ যায়, bandwidth বাঁচাতে)। এই endpoint শুধু fallback হিসেবে রাখা
+    হয়েছে, যদি কোনো কারণে সরাসরি open কাজ না করে।
+
+    HD ফ্রি লিমিট এখন /hd/resolve-এই consume হয় (RapidAPI কল করার সময়),
+    এখানে আর না — কারণ এখানেই যদি আবার consume করা হয়, তাহলে একটা HD
+    ডাউনলোডে দুইবার কোটা কাটা হয়ে যেত।
     """
     cdn_url = request.args.get('url', '').strip()
     filename = _safe_filename(request.args.get('filename'), 'tiktok_video.mp4')
@@ -235,17 +250,6 @@ def proxy_download():
     if not is_allowed_cdn_url(cdn_url):
         logger.warning(f"Blocked proxy-download for disallowed host: {cdn_url}")
         return jsonify({'error': 'Invalid URL'}), 400
-
-    # HD ফ্রি লিমিট এখানেই আসলে "consume" করা হয় (মেটাডেটা রেসপন্সে না) —
-    # কারণ এটাই আসল ফাইল ডাউনলোডের মুহূর্ত। এটা সরাসরি এই route হিট করেও
-    # (ফ্রন্টএন্ড বাইপাস করে) কেউ লিমিট এড়াতে পারবে না।
-    allowed, status = hd_limiter.try_consume(_client_ip(), _get_or_create_device_id())
-    if not allowed:
-        logger.warning("HD download blocked: free limit + unlock grants exhausted.")
-        return jsonify({
-            'error': 'Daily free HD limit reached. Watch an ad to unlock more, or try again later.',
-            'hd_limit': status,
-        }), 429
 
     try:
         headers = {
