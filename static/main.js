@@ -46,6 +46,28 @@ function proxyNormalUrl(videoUrl, filename) {
     return `/proxy-download-normal?url=${encodeURIComponent(videoUrl)}&filename=${encodeURIComponent(filename)}`;
 }
 
+// ── Client-side blob download — server bandwidth শূন্য ──
+async function triggerDownload(url, filename) {
+    showToast('ডাউনলোড শুরু হচ্ছে...', 'info');
+    try {
+        const resp = await fetch(url, { mode: 'cors' });
+        if (!resp.ok) throw new Error('fetch failed');
+        const blob = await resp.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
+        showToast('ডাউনলোড সফল! ✅', 'success');
+    } catch (_) {
+        // CORS block হলে নতুন ট্যাবে খোলো (fallback)
+        window.open(url, '_blank', 'noopener,noreferrer');
+    }
+}
+
 // ===== Toast Notification System =====
 function showToast(message, type = 'info', duration = 3500) {
     const container = document.getElementById('toastContainer');
@@ -250,61 +272,53 @@ function renderVideoResult(data) {
     const safeAuthor    = escapeHtml(data.author  || 'Unknown');
     const safeThumbnail = escapeHtml(data.thumbnail || '');
 
-    // HD URL store (RapidAPI CDN) — সরাসরি নতুন ট্যাবে খোলা যায়
     _hdUrl = (data.hd_available && data.hd_url) ? data.hd_url : '';
-
-    // Normal → RapidAPI play CDN URL, সরাসরি browser-এ খোলা যায়
-    // HD button-এর মতোই কাজ করে — server bandwidth শূন্য
     const normalUrl = (data.sd_available && data.video_url) ? data.video_url : '';
 
-    const thumbHtml = safeThumbnail
-        ? `<img class="result-thumb" src="${safeThumbnail}" alt="Thumbnail" onerror="this.style.display='none'">`
-        : '';
-
-    // HD: <a target="_blank"> — native navigation, popup blocker-এ block হয় না
-    const hdBtn = _hdUrl
-        ? `<a id="_hdLink" href="#" class="result-btn hd" target="_blank" rel="noopener noreferrer">
-               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-               HD Download
-           </a>`
-        : `<span class="result-btn sd" style="opacity:0.4;cursor:default;">${data.hd_locked ? 'HD Locked' : 'HD Unavailable'}</span>`;
+    // Thumbnail — tall 9:16 card with overlay buttons
+    const thumbBlock = safeThumbnail ? `
+        <div class="video-thumb-wrap">
+            <img class="video-thumb-img" src="${safeThumbnail}" alt="Thumbnail"
+                 onerror="this.closest('.video-thumb-wrap').style.display='none'">
+            <div class="thumb-overlay-row">
+                ${_hdUrl
+                    ? `<button class="thumb-dl-pill hd" id="_hdPill">
+                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                           HD
+                       </button>`
+                    : `<span class="thumb-dl-pill disabled">${data.hd_locked ? '🔒 HD' : 'HD ✗'}</span>`
+                }
+                ${normalUrl
+                    ? `<button class="thumb-dl-pill sd" id="_sdPill">
+                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                           Normal
+                       </button>`
+                    : ''
+                }
+            </div>
+        </div>` : '';
 
     const hdRemainingBadge = renderHdRemainingBadge(data.hd_limit);
-
-    // Normal: RapidAPI play CDN URL সরাসরি নতুন ট্যাবে — server proxy নেই
-    const sdBtn = normalUrl
-        ? `<a id="_normalLink" href="#" class="result-btn sd" target="_blank" rel="noopener noreferrer">
-               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-               Normal Download
-           </a>`
-        : '';
-
     const hdLockHtml = renderHdLockBlock(data.hd_limit);
 
     resultArea.innerHTML = `
         <div class="result-card">
             <div class="result-meta">
-                ${thumbHtml}
+                ${thumbBlock}
                 <div class="result-info">
                     <h3>${safeTitle}</h3>
                     <span class="result-author">@${safeAuthor}</span>
+                    ${hdRemainingBadge}
                 </div>
             </div>
-            <div class="result-buttons">
-                ${hdBtn}
-                ${sdBtn}
-            </div>
-            ${hdRemainingBadge}
             ${hdLockHtml}
         </div>`;
 
-    // HD link href — XSS-safe programmatic set
+    // HD pill — fetch→blob download + /hd/consume
     if (_hdUrl) {
-        const hdLink = document.getElementById('_hdLink');
-        if (hdLink) {
-            hdLink.href = _hdUrl;
-            // Click হলে background-এ /hd/consume → limit কমে, badge update
-            hdLink.addEventListener('click', function () {
+        const hdPill = document.getElementById('_hdPill');
+        if (hdPill) {
+            hdPill.addEventListener('click', function () {
                 fetch('/hd/consume', { method: 'POST' })
                     .then(r => r.json())
                     .then(res => {
@@ -316,14 +330,17 @@ function renderVideoResult(data) {
                         }
                     })
                     .catch(() => {});
+                triggerDownload(_hdUrl, 'tiktok_hd.mp4');
             }, { once: true });
         }
     }
 
-    // Normal link href — RapidAPI play CDN URL, XSS-safe set
+    // Normal pill — fetch→blob download
     if (normalUrl) {
-        const normalLink = document.getElementById('_normalLink');
-        if (normalLink) normalLink.href = normalUrl;
+        const sdPill = document.getElementById('_sdPill');
+        if (sdPill) {
+            sdPill.addEventListener('click', () => triggerDownload(normalUrl, 'tiktok_normal.mp4'));
+        }
     }
 
     showToast('Video found! Choose your quality.', 'success');
