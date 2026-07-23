@@ -19,6 +19,7 @@
 
 // HD URL (RapidAPI CDN) — <a> tag-এ set করা হয় নতুন ট্যাব navigation-এর জন্য
 let _hdUrl = '';
+let _inFlight = false; // network spam বন্ধ
 
 const urlInput    = document.getElementById('urlInput');
 const clearBtn    = document.getElementById('clearBtn');
@@ -369,6 +370,7 @@ function renderError(message) {
 
 // ===== Main Download Process =====
 async function processDownload() {
+    if (_inFlight) { showToast('একটু অপেক্ষা করুন...', 'info'); return; }
     const url = urlInput.value.trim();
     if (!url) { showToast('Please paste a TikTok link first.', 'info'); return; }
     if (!url.includes('tiktok.com')) {
@@ -377,6 +379,7 @@ async function processDownload() {
     }
 
     setLoading(true);
+    _inFlight = true;
     try {
         const response = await fetch('/download', {
             method: 'POST',
@@ -394,6 +397,7 @@ async function processDownload() {
         renderError('Network error. Please check your connection.');
     } finally {
         setLoading(false);
+        _inFlight = false;
     }
 }
 

@@ -4,6 +4,8 @@ import secrets
 from urllib.parse import urlparse, quote
 import requests as req_lib
 from services.api_handler import fetch_tiktok_data
+from services.rapidapi_cache import get_cached, set_cached
+from services.rapidapi_cache import get_cached, set_cached
 from services.ytdlp_handler import stream_ytdlp_video
 from services import hd_limiter
 from utils.validators import is_valid_tiktok_url
@@ -89,9 +91,24 @@ def download():
         return jsonify({'success': False, 'error': 'Invalid TikTok URL provided.'}), 400
 
     logger.info(f"Processing download request for: {video_url}")
+
+    # ── ৪৫ মিনিট Cache চেক — একই লিঙ্কে বারবার API call বন্ধ ──
+    cached = get_cached(video_url)
+    if cached:
+        logger.info("Cache hit — RapidAPI call বাঁচলো।")
+        if not cached.get('is_photo') and cached.get('hd_available'):
+            status = hd_limiter.get_status(_client_ip(), _get_or_create_device_id())
+            cached['hd_limit'] = status
+            if status['locked']:
+                cached['hd_available'] = False
+                cached['hd_locked'] = True
+        return jsonify(cached)
+
     result = fetch_tiktok_data(video_url)
 
     if result['success']:
+        # সফল হলে cache-এ সেভ করো (৪৫ মিনিট)
+        set_cached(video_url, result)
         if not result.get('is_photo') and result.get('hd_available'):
             status = hd_limiter.get_status(_client_ip(), _get_or_create_device_id())
             result['hd_limit'] = status
