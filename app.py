@@ -5,7 +5,6 @@ from urllib.parse import urlparse, quote
 import requests as req_lib
 from services.api_handler import fetch_tiktok_data
 from services.rapidapi_cache import get_cached, set_cached
-from services.rapidapi_cache import get_cached, set_cached
 from services.ytdlp_handler import stream_ytdlp_video
 from services import hd_limiter
 from utils.validators import is_valid_tiktok_url
